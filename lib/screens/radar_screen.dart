@@ -106,6 +106,27 @@ class _RadarScreenState extends State<RadarScreen> {
     if (_mapReady) _mapController.move(_driverLocation, 14);
   }
 
+  Future<void> _centerOnDriver() async {
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+      if (!mounted) return;
+      setState(() {
+        _driverLocation = LatLng(position.latitude, position.longitude);
+        _isLocating = false;
+        _locationMessage = null;
+      });
+      _moveMapToDriver();
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await _pushNotifications.updateDriverLocation(user: user, latitude: position.latitude, longitude: position.longitude);
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Не удалось обновить местоположение')));
+    }
+  }
+
   @override
   void dispose() {
     _positionSubscription?.cancel();
@@ -352,6 +373,18 @@ class _RadarScreenState extends State<RadarScreen> {
           ),
           if (_locationMessage != null)
             Positioned(left: 16, right: 16, bottom: 20, child: _MapMessage(message: _locationMessage!)),
+          Positioned(
+            right: 16,
+            bottom: _locationMessage == null ? 24 : 92,
+            child: FloatingActionButton.small(
+              heroTag: 'center-on-driver',
+              onPressed: _centerOnDriver,
+              tooltip: 'Моё местоположение',
+              backgroundColor: const Color(0xFF171914),
+              foregroundColor: const Color(0xFFF3C622),
+              child: const Icon(Icons.my_location),
+            ),
+          ),
         ],
       ),
     );

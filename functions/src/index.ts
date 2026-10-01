@@ -63,14 +63,26 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     }
   }
 
-  if (tokens.length === 0) {
+  const uniqueTokens = [...new Set(tokens)];
+  if (uniqueTokens.length === 0) {
     logger.info('No nearby drivers with FCM tokens', { orderId: event.params.orderId });
+    return;
+  }
+
+  if (process.env.FCM_DRY_RUN === 'true') {
+    await db.collection('_emulatorDispatches').doc(event.params.orderId).set({
+      orderId: event.params.orderId,
+      tokens: uniqueTokens,
+      radiusKm: notificationRadiusKm,
+      createdAt: new Date().toISOString(),
+    });
+    logger.info('FCM dry-run dispatch recorded', { orderId: event.params.orderId, recipients: uniqueTokens.length });
     return;
   }
 
   const type = String(order.type ?? 'Спецтехника');
   const address = String(order.address ?? 'Новая заявка');
-  const messages: MulticastMessage[] = chunks([...new Set(tokens)], 500).map((tokenChunk) => ({
+  const messages: MulticastMessage[] = chunks(uniqueTokens, 500).map((tokenChunk) => ({
     tokens: tokenChunk,
     notification: {
       title: 'Новая заявка рядом',
@@ -98,7 +110,7 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
   const failureCount = results.reduce((total, result) => total + result.failureCount, 0);
   logger.info('Nearby driver notifications sent', {
     orderId: event.params.orderId,
-    recipients: tokens.length,
+    recipients: uniqueTokens.length,
     successCount,
     failureCount,
     radiusKm: notificationRadiusKm,
