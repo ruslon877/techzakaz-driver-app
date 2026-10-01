@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -12,6 +13,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final _phoneController = TextEditingController();
   final _codeController = TextEditingController();
   final _auth = FirebaseAuth.instance;
+  final _phoneMaskFormatter = MaskTextInputFormatter(
+    mask: '(###) ###-##-##',
+    filter: {'#': RegExp(r'[0-9]')},
+  );
 
   String? _verificationId;
   String? _errorMessage;
@@ -27,14 +32,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
   String _normalizePhone(String value) {
     final digits = value.replaceAll(RegExp(r'\D'), '');
-    if (digits.startsWith('8')) return '+7${digits.substring(1)}';
-    if (digits.startsWith('7')) return '+$digits';
     return '+7$digits';
   }
 
   Future<void> _sendCode() async {
     final phone = _normalizePhone(_phoneController.text);
-    if (phone.length < 12) {
+    final phoneDigits = _phoneMaskFormatter.getUnmaskedText();
+    if (phoneDigits.length != 10) {
       setState(() => _errorMessage = 'Введите полный номер телефона.');
       return;
     }
@@ -150,8 +154,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextField(
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
+                      inputFormatters: [_phoneMaskFormatter],
+                      maxLength: 15,
                       style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration('Номер телефона', Icons.phone_outlined),
+                      decoration: _inputDecoration('Номер телефона', Icons.phone_outlined).copyWith(
+                        prefixText: '+7 ',
+                        prefixStyle: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                        counterText: '',
+                      ),
                     )
                   else
                     TextField(
