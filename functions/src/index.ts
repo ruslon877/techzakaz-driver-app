@@ -35,84 +35,152 @@ function chunks<T>(items: T[], size: number): T[][] {
 }
 
 export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (event) => {
+  const orderId = event.params.orderId;
+  const startedAt = Date.now();
+  logger.info('FCM notification flow started', { orderId });
+
   const orderSnapshot = event.data;
-  if (!orderSnapshot) return;
+  if (!orderSnapshot) {
+    logger.warn('FCM notification skipped: document snapshot is missing', { orderId });
+    return;
+  }
 
   const order = orderSnapshot.data();
-  if (order.status !== 'active') return;
+  if (order.status !== 'active') {
+    logger.info('FCM notification skipped: order is not active', { orderId, status: order.status ?? null });
+    return;
+  }
 
   const orderLat = asNumber(order.lat);
   const orderLon = asNumber(order.lon);
   if (orderLat === null || orderLon === null) {
-    logger.warn('Order has no valid coordinates', { orderId: event.params.orderId });
+    logger.warn('FCM notification skipped: order has no valid coordinates', { orderId });
     return;
   }
 
   const driversSnapshot = await db.collection('drivers').where('isOnline', '==', true).get();
   const tokens: string[] = [];
+  let driversWithoutLocation = 0;
+  let driversWithoutToken = 0;
+  let nearbyDrivers = 0;
 
   for (const driver of driversSnapshot.docs) {
     const data = driver.data();
     const driverLat = asNumber(data.lat);
     const driverLon = asNumber(data.lon);
     const token = typeof data.fcmToken === 'string' ? data.fcmToken : null;
-    if (driverLat === null || driverLon === null || !token) continue;
+    if (driverLat === null || driverLon === null) {
+      driversWithoutLocation += 1;
+      continue;
+    }
+    if (!token) {
+      driversWithoutToken += 1;
+      continue;
+    }
 
     if (distanceKm(orderLat, orderLon, driverLat, driverLon) <= notificationRadiusKm) {
+      nearbyDrivers += 1;
       tokens.push(token);
     }
   }
 
   const uniqueTokens = [...new Set(tokens)];
+  logger.info('FCM recipient selection completed', {
+    orderId,
+    onlineDrivers: driversSnapshot.size,
+    nearbyDrivers,
+    uniqueRecipients: uniqueTokens.length,
+    driversWithoutLocation,
+    driversWithoutToken,
+    radiusKm: notificationRadiusKm,
+  });
+
   if (uniqueTokens.length === 0) {
-    logger.info('No nearby drivers with FCM tokens', { orderId: event.params.orderId });
+    logger.info('FCM notification not sent: no nearby drivers with valid tokens', { orderId });
     return;
   }
 
   if (process.env.FCM_DRY_RUN === 'true') {
-    await db.collection('_emulatorDispatches').doc(event.params.orderId).set({
-      orderId: event.params.orderId,
+    await db.collection('_emulatorDispatches').doc(orderId).set({
+      orderId,
       tokens: uniqueTokens,
       radiusKm: notificationRadiusKm,
       createdAt: new Date().toISOString(),
     });
-    logger.info('FCM dry-run dispatch recorded', { orderId: event.params.orderId, recipients: uniqueTokens.length });
+    logger.info('FCM dry-run dispatch recorded', { orderId, recipients: uniqueTokens.length, durationMs: Date.now() - startedAt });
     return;
   }
 
   const type = String(order.type ?? 'Спецтехника');
   const address = String(order.address ?? 'Новая заявка');
-  const messages: MulticastMessage[] = chunks(uniqueTokens, 500).map((tokenChunk) => ({
+  const batches = chunks(uniqueTokens, 500).map((tokenChunk) => ({
     tokens: tokenChunk,
-    notification: {
-      title: 'Новая заявка рядом',
-      body: `${type} · ${address}`,
-    },
-    data: {
-      orderId: event.params.orderId,
-      type,
-      address,
-      lat: String(orderLat),
-      lon: String(orderLon),
-      status: 'active',
-    },
-    android: {
-      priority: 'high',
+    message: {
+      tokens: tokenChunk,
       notification: {
-        channelId: 'orders',
-        sound: 'default',
+        title: 'Новая заявка рядом',
+        body: `${type} · ${address}`,
+      },
+      data: {
+        orderId,
+        type,
+        address,
+        lat: String(orderLat),
+        lon: String(orderLon),
+        status: 'active',
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'orders',
+          sound: 'default',
+        },
       },
     },
   }));
 
-  const results = await Promise.all(messages.map((message) => getMessaging().sendEachForMulticast(message)));
-  const successCount = results.reduce((total, result) => total + result.successCount, 0);
-  const failureCount = results.reduce((total, result) => total + result.failureCount, 0);
-  logger.info('Nearby driver notifications sent', {
-    orderId: event.params.orderId,
+  const batchResults = await Promise.all(batches.map(async (batch, batchIndex) => {
+    try {
+      const result = await getMessaging().sendEachForMulticast(batch.message as MulticastMessage);
+      const failures = result.responses
+        .map((response, responseIndex) => ({ response, responseIndex }))
+        .filter(({ response }) => !response.success)
+        .map(({ response, responseIndex }) => ({
+          batchIndex,
+          recipientIndex: batchIndex * 500 + responseIndex,
+          code: response.error?.code ?? 'unknown',
+          message: response.error?.message ?? 'Unknown FCM error',
+        }));
+
+      logger.info('FCM batch completed', {
+        orderId,
+        batchIndex,
+        batchRecipients: batch.tokens.length,
+        successCount: result.successCount,
+        failureCount: result.failureCount,
+        failureDetails: failures,
+      });
+      return { successCount: result.successCount, failureCount: result.failureCount, failures };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('FCM batch request failed', { orderId, batchIndex, batchRecipients: batch.tokens.length, error: message });
+      return { successCount: 0, failureCount: batch.tokens.length, failures: [{ batchIndex, code: 'batch_request_failed', message }] };
+    }
+  }));
+
+  const successCount = batchResults.reduce((total, result) => total + result.successCount, 0);
+  const failureCount = batchResults.reduce((total, result) => total + result.failureCount, 0);
+  const failureDetails = batchResults.flatMap((result) => result.failures);
+  const dispatchSummary = {
+    orderId,
     recipients: uniqueTokens.length,
     successCount,
     failureCount,
     radiusKm: notificationRadiusKm,
-  });
+    durationMs: Date.now() - startedAt,
+    failureCodes: failureDetails.map((failure) => failure.code),
+    createdAt: new Date().toISOString(),
+  };
+  logger.info('FCM notification flow completed', dispatchSummary);
+  await db.collection('_notificationDispatches').doc(orderId).set(dispatchSummary);
 });
