@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'screens/login_screen.dart';
+import 'screens/radar_screen.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -20,12 +21,7 @@ class AuthGate extends StatelessWidget {
 
         if (snapshot.data == null) return const LoginScreen();
 
-        return const Scaffold(
-          backgroundColor: Color(0xFF0B0C0A),
-          body: Center(
-            child: Text('Радар заявок', style: TextStyle(color: Colors.white, fontSize: 22)),
-          ),
-        );
+        return const RadarScreen();
       },
     );
   }
