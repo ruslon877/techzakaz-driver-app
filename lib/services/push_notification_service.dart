@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class PushNotificationService {
   PushNotificationService._();
@@ -12,8 +13,10 @@ class PushNotificationService {
 
   final _messaging = FirebaseMessaging.instance;
   final _firestore = FirebaseFirestore.instance;
+  final _localNotifications = FlutterLocalNotificationsPlugin();
   StreamSubscription<String>? _tokenSubscription;
   String? _initializedUid;
+  bool _localNotificationsInitialized = false;
 
   Stream<RemoteMessage> get foregroundMessages => FirebaseMessaging.onMessage;
 
@@ -35,12 +38,57 @@ class PushNotificationService {
       badge: true,
       sound: true,
     );
+    await _initializeLocalNotifications();
 
     final token = await _messaging.getToken();
     if (token != null) await _saveToken(user.uid, token);
 
     _tokenSubscription = _messaging.onTokenRefresh.listen((token) => _saveToken(user.uid, token));
     _initializedUid = user.uid;
+  }
+
+  Future<void> _initializeLocalNotifications() async {
+    if (_localNotificationsInitialized) return;
+
+    const initializationSettings = InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    );
+    await _localNotifications.initialize(settings: initializationSettings);
+    final androidImplementation = _localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await androidImplementation?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        'orders',
+        'Новые заявки',
+        description: 'Уведомления о новых заявках рядом с водителем',
+        importance: Importance.max,
+        playSound: true,
+      ),
+    );
+    _localNotificationsInitialized = true;
+  }
+
+  Future<void> showForegroundNotification(RemoteMessage message) async {
+    await _initializeLocalNotifications();
+    final notification = message.notification;
+    final title = notification?.title ?? message.data['title']?.toString() ?? 'Новая заявка рядом';
+    final body = notification?.body ?? message.data['body']?.toString() ?? 'Проверьте Радар заявок';
+    await _localNotifications.show(
+      id: message.hashCode,
+      title: title,
+      body: body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'orders',
+          'Новые заявки',
+          channelDescription: 'Уведомления о новых заявках рядом с водителем',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+      ),
+      payload: message.data['orderId']?.toString(),
+    );
   }
 
   Future<void> updateDriverLocation({required User user, required double latitude, required double longitude}) async {
@@ -74,6 +122,7 @@ class PushNotificationService {
     await _tokenSubscription?.cancel();
     _tokenSubscription = null;
     _initializedUid = null;
+    _localNotificationsInitialized = false;
   }
 }
 

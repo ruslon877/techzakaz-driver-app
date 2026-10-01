@@ -7,6 +7,9 @@
         android:label="techzakaz_driver_app"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:resource="@string/default_notification_channel_id" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

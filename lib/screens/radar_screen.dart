@@ -47,9 +47,7 @@ class _RadarScreenState extends State<RadarScreen> {
       await _pushNotifications.initializeForUser(user);
       _messageSubscription = _pushNotifications.foregroundMessages.listen((message) {
         if (!mounted) return;
-        final title = message.notification?.title ?? 'Новая заявка рядом';
-        final body = message.notification?.body ?? 'Проверьте Радар заявок';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$title\n$body')));
+        unawaited(_pushNotifications.showForegroundNotification(message));
       });
     } catch (_) {
       // Push delivery must not block access to the radar.
