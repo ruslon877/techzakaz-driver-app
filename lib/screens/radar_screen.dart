@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+
+import '../services/push_notification_service.dart';
 
 class RadarScreen extends StatefulWidget {
   const RadarScreen({super.key});
@@ -18,16 +23,37 @@ class _RadarScreenState extends State<RadarScreen> {
       .collection('orders')
       .where('status', whereIn: ['active', 'in_progress']);
   final MapController _mapController = MapController();
+  final _pushNotifications = PushNotificationService.instance;
 
   LatLng _driverLocation = _almaty;
   bool _isLocating = true;
   bool _mapReady = false;
   String? _locationMessage;
+  StreamSubscription<Position>? _positionSubscription;
+  StreamSubscription<RemoteMessage>? _messageSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadDriverLocation();
+    _initializePushNotifications();
+  }
+
+  Future<void> _initializePushNotifications() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      await _pushNotifications.initializeForUser(user);
+      _messageSubscription = _pushNotifications.foregroundMessages.listen((message) {
+        if (!mounted) return;
+        final title = message.notification?.title ?? 'Новая заявка рядом';
+        final body = message.notification?.body ?? 'Проверьте Радар заявок';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$title\n$body')));
+      });
+    } catch (_) {
+      // Push delivery must not block access to the radar.
+    }
   }
 
   Future<void> _loadDriverLocation() async {
@@ -57,6 +83,20 @@ class _RadarScreenState extends State<RadarScreen> {
         _locationMessage = null;
       });
       _moveMapToDriver();
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await _pushNotifications.updateDriverLocation(user: user, latitude: position.latitude, longitude: position.longitude);
+      }
+      _positionSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 250),
+      ).listen((nextPosition) {
+        if (!mounted) return;
+        setState(() => _driverLocation = LatLng(nextPosition.latitude, nextPosition.longitude));
+        final currentUser = FirebaseAuth.instance.currentUser;
+        if (currentUser != null) {
+          unawaited(_pushNotifications.updateDriverLocation(user: currentUser, latitude: nextPosition.latitude, longitude: nextPosition.longitude));
+        }
+      });
     } catch (_) {
       _setLocationMessage('Не удалось определить местоположение. Показываем Алматы.');
     }
@@ -64,6 +104,15 @@ class _RadarScreenState extends State<RadarScreen> {
 
   void _moveMapToDriver() {
     if (_mapReady) _mapController.move(_driverLocation, 14);
+  }
+
+  @override
+  void dispose() {
+    _positionSubscription?.cancel();
+    _messageSubscription?.cancel();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) unawaited(_pushNotifications.markOffline(user));
+    super.dispose();
   }
 
   void _setLocationMessage(String message) {
