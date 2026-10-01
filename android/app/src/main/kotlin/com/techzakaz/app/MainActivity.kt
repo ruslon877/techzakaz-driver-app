@@ -1,4 +1,4 @@
-package com.techzakaz.techzakaz_driver_app
+package com.techzakaz.app
 
 import io.flutter.embedding.android.FlutterActivity
 
