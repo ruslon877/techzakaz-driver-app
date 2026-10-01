@@ -16,7 +16,7 @@ class _RadarScreenState extends State<RadarScreen> {
   static const _almaty = LatLng(43.238949, 76.889709);
   final _ordersQuery = FirebaseFirestore.instance
       .collection('orders')
-      .where('status', isEqualTo: 'active');
+      .where('status', whereIn: ['active', 'in_progress']);
   final MapController _mapController = MapController();
 
   LatLng _driverLocation = _almaty;
@@ -74,8 +74,14 @@ class _RadarScreenState extends State<RadarScreen> {
     });
   }
 
+  bool _isVisibleOrder(Map<String, dynamic> data) {
+    final status = data['status']?.toString() ?? 'active';
+    if (status == 'active') return true;
+    return status == 'in_progress' && data['driverId']?.toString() == FirebaseAuth.instance.currentUser?.uid;
+  }
+
   List<Marker> _markersFrom(QuerySnapshot<Map<String, dynamic>> snapshot) {
-    return snapshot.docs.map((document) {
+    return snapshot.docs.where((document) => _isVisibleOrder(document.data())).map((document) {
       final data = document.data();
       final lat = _asDouble(data['lat']);
       final lon = _asDouble(data['lon']);
@@ -101,6 +107,46 @@ class _RadarScreenState extends State<RadarScreen> {
     }).whereType<Marker>().toList();
   }
 
+  Future<void> _changeOrderStatus(String orderId, String nextStatus) async {
+    final driver = FirebaseAuth.instance.currentUser;
+    if (driver == null) return;
+
+    final orderRef = FirebaseFirestore.instance.collection('orders').doc(orderId);
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(orderRef);
+        final data = snapshot.data();
+        if (data == null) throw StateError('Заявка не найдена.');
+
+        final currentStatus = data['status']?.toString() ?? 'active';
+        final assignedDriverId = data['driverId']?.toString();
+        if (nextStatus == 'in_progress' && currentStatus != 'active') {
+          throw StateError('Эту заявку уже взял другой водитель.');
+        }
+        if (nextStatus == 'completed' && (currentStatus != 'in_progress' || assignedDriverId != driver.uid)) {
+          throw StateError('Завершить можно только свою заявку в работе.');
+        }
+
+        final update = <String, dynamic>{
+          'status': nextStatus,
+          if (nextStatus == 'in_progress') ...{
+            'driverId': driver.uid,
+            'startedAt': FieldValue.serverTimestamp(),
+          },
+          if (nextStatus == 'completed') 'completedAt': FieldValue.serverTimestamp(),
+        };
+        transaction.update(orderRef, update);
+      });
+
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(nextStatus == 'in_progress' ? 'Заявка взята в работу' : 'Заявка завершена')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error is StateError ? error.message : 'Не удалось изменить статус заявки')));
+    }
+  }
+
   double? _asDouble(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '');
@@ -111,6 +157,10 @@ class _RadarScreenState extends State<RadarScreen> {
     final phone = data['phone']?.toString() ?? 'не указан';
     final address = data['address']?.toString() ?? 'Адрес не указан';
     final destination = data['destinationAddress']?.toString();
+    final status = data['status']?.toString() ?? 'active';
+    final currentDriverId = FirebaseAuth.instance.currentUser?.uid;
+    final assignedDriverId = data['driverId']?.toString();
+    final isMine = assignedDriverId != null && assignedDriverId == currentDriverId;
     final lat = _asDouble(data['lat']);
     final lon = _asDouble(data['lon']);
 
@@ -127,9 +177,9 @@ class _RadarScreenState extends State<RadarScreen> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.fiber_manual_record, color: Color(0xFFF3C622), size: 12),
+                  Icon(Icons.fiber_manual_record, color: status == 'active' ? const Color(0xFFF3C622) : Colors.lightBlueAccent, size: 12),
                   const SizedBox(width: 8),
-                  const Text('Активная заявка', style: TextStyle(color: Color(0xFFF3C622), fontWeight: FontWeight.w700)),
+                  Text(status == 'active' ? 'Активная заявка' : isMine ? 'Ваша заявка в работе' : 'Заявка уже в работе', style: TextStyle(color: status == 'active' ? const Color(0xFFF3C622) : Colors.lightBlueAccent, fontWeight: FontWeight.w700)),
                   const Spacer(),
                   Text('#${orderId.substring(0, orderId.length > 6 ? 6 : orderId.length)}', style: const TextStyle(color: Colors.white38)),
                 ],
@@ -143,16 +193,30 @@ class _RadarScreenState extends State<RadarScreen> {
               if (lat != null && lon != null) _InfoRow(icon: Icons.gps_fixed, label: 'Координаты', value: '${lat.toStringAsFixed(5)}, ${lon.toStringAsFixed(5)}'),
               if ((data['comment']?.toString() ?? '').isNotEmpty) _InfoRow(icon: Icons.notes_outlined, label: 'Детали', value: data['comment'].toString()),
               const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: FilledButton.icon(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.check),
-                  label: const Text('Принять в работу'),
-                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF3C622), foregroundColor: const Color(0xFF11120E)),
-                ),
-              ),
+              if (status == 'active')
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton.icon(
+                    onPressed: () => _changeOrderStatus(orderId, 'in_progress'),
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('Взять в работу'),
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF3C622), foregroundColor: const Color(0xFF11120E)),
+                  ),
+                )
+              else if (isMine)
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton.icon(
+                    onPressed: () => _changeOrderStatus(orderId, 'completed'),
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text('Завершить заявку'),
+                    style: FilledButton.styleFrom(backgroundColor: Colors.greenAccent, foregroundColor: const Color(0xFF11120E)),
+                  ),
+                )
+              else
+                const Text('Эта заявка уже закреплена за другим водителем.', style: TextStyle(color: Colors.white54)),
             ],
           ),
         ),
@@ -229,7 +293,10 @@ class _RadarScreenState extends State<RadarScreen> {
                 const Spacer(),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: _ordersQuery.snapshots(),
-                  builder: (context, snapshot) => _StatusChip(icon: Icons.notifications_active_outlined, label: '${snapshot.data?.docs.length ?? 0} заявок', color: const Color(0xFFF3C622)),
+                  builder: (context, snapshot) {
+                    final count = snapshot.data?.docs.where((document) => _isVisibleOrder(document.data())).length ?? 0;
+                    return _StatusChip(icon: Icons.notifications_active_outlined, label: '$count заявок', color: const Color(0xFFF3C622));
+                  },
                 ),
               ],
             ),
