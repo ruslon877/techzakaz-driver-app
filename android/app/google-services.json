@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "837703673486",
+    "project_id": "techzakaz-e273a",
+    "storage_bucket": "techzakaz-e273a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:837703673486:android:15d61a7588d31a87208bdf",
+        "android_client_info": {
+          "package_name": "com.techzakaz.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCtvLLKp_peAUZ1KIylgV_kgklhesr06Wc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
