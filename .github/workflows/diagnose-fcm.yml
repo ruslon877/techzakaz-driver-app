@@ -95,4 +95,12 @@ jobs:
               };
             }),
           }, null, 2));
+
+          const dispatches = await db.collection('_notificationDispatches').orderBy('createdAt', 'desc').limit(10).get();
+          console.log(JSON.stringify({
+            notificationDispatches: dispatches.docs.map((doc) => ({
+              id: doc.id,
+              ...doc.data(),
+            })),
+          }, null, 2));
           NODE
