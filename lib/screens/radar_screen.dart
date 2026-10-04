@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/push_notification_service.dart';
 
@@ -491,78 +492,103 @@ class _RadarScreenState extends State<RadarScreen> {
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
-  Widget _buildCooldownScreen(DateTime until) {
-    final remaining = until.difference(DateTime.now());
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0C0A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0B0C0A),
-        title: const Text(
-          'ТехЗаказ',
-          style: TextStyle(fontWeight: FontWeight.w800),
+  String _phoneDigits(String phone) {
+    var digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.startsWith('8') && digits.length == 11) {
+      digits = '7${digits.substring(1)}';
+    }
+    if (digits.length == 10) {
+      digits = '7$digits';
+    }
+    return digits;
+  }
+
+  Future<void> _callClient(String phone) async {
+    final digits = _phoneDigits(phone);
+    if (digits.length < 11) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Номер клиента указан некорректно')),
+        );
+      }
+      return;
+    }
+    if (!await launchUrl(
+          Uri(scheme: 'tel', path: '+$digits'),
+          mode: LaunchMode.externalApplication,
+        ) &&
+        mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось открыть звонилку')),
+      );
+    }
+  }
+
+  Future<void> _openWhatsApp(String phone) async {
+    final digits = _phoneDigits(phone);
+    if (digits.length < 11) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Номер клиента указан некорректно')),
+        );
+      }
+      return;
+    }
+    if (!await launchUrl(
+          Uri.parse('https://wa.me/$digits'),
+          mode: LaunchMode.externalApplication,
+        ) &&
+        mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось открыть WhatsApp')),
+      );
+    }
+  }
+
+  Marker? _currentOrderMarker(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    final lat = _asDouble(data['lat']);
+    final lon = _asDouble(data['lon']);
+    if (lat == null || lon == null) return null;
+    return Marker(
+      point: LatLng(lat, lon),
+      width: 58,
+      height: 64,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3C622),
+          shape: BoxShape.circle,
+          border: Border.all(color: const Color(0xFF11120E), width: 3),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black54,
+              blurRadius: 8,
+              offset: Offset(0, 3),
+            ),
+          ],
         ),
-        actions: [
-          IconButton(
-            onPressed: _signOut,
-            tooltip: 'Выйти',
-            icon: const Icon(Icons.logout_outlined),
-          ),
-        ],
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.route_rounded,
-                color: Color(0xFFF3C622),
-                size: 74,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Вы на заказе',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Радар станет доступен через',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white60, fontSize: 16),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                _formatRemaining(remaining),
-                style: const TextStyle(
-                  color: Color(0xFFF3C622),
-                  fontSize: 42,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 2,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Когда таймер завершится, новые заявки снова появятся на карте.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white38, height: 1.4),
-              ),
-            ],
-          ),
+        child: const Icon(
+          Icons.navigation_rounded,
+          color: Color(0xFF11120E),
+          size: 28,
         ),
       ),
     );
   }
 
-  Widget _buildCurrentOrderScreen(String orderId, Map<String, dynamic> data) {
-    final type = data['type']?.toString() ?? 'Спецтехника';
-    final phone = data['phone']?.toString() ?? 'Номер не указан';
-    final address = data['address']?.toString() ?? 'Адрес не указан';
-    final destination = data['destinationAddress']?.toString();
+  Widget _buildActiveOrderMap({
+    Map<String, dynamic>? order,
+    DateTime? cooldownUntil,
+  }) {
+    final type = order?['type']?.toString() ?? 'Текущий заказ';
+    final phone = order?['phone']?.toString() ?? '';
+    final address = order?['address']?.toString() ?? 'Адрес не указан';
+    final destination = order?['destinationAddress']?.toString();
+    final comment = order?['comment']?.toString() ?? '';
+    final orderId = order?['_orderId']?.toString();
+    final pending = order?['status']?.toString() == 'in_progress';
+    final remaining = cooldownUntil?.difference(DateTime.now());
+    final orderMarker = _currentOrderMarker(order);
     return Scaffold(
       backgroundColor: const Color(0xFF0B0C0A),
       appBar: AppBar(
@@ -572,7 +598,7 @@ class _RadarScreenState extends State<RadarScreen> {
           children: [
             Text('ТехЗаказ', style: TextStyle(fontWeight: FontWeight.w800)),
             Text(
-              'ТЕКУЩИЙ ЗАКАЗ',
+              'В РЕЙСЕ',
               style: TextStyle(
                 color: Color(0xFFF3C622),
                 fontSize: 10,
@@ -589,83 +615,194 @@ class _RadarScreenState extends State<RadarScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _driverLocation,
+              initialZoom: 12.5,
+              onMapReady: () {
+                _mapReady = true;
+                _moveMapToDriver();
+              },
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all,
+              ),
+            ),
             children: [
-              const _StatusChip(
-                icon: Icons.radio_button_checked,
-                label: 'ЗАКАЗ В РАБОТЕ',
-                color: Color(0xFFF3C622),
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.techzakaz.app',
               ),
-              const SizedBox(height: 24),
-              Text(
-                type,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 22),
-              _InfoRow(
-                icon: Icons.phone_outlined,
-                label: 'Телефон клиента',
-                value: phone,
-              ),
-              _InfoRow(
-                icon: Icons.location_on_outlined,
-                label: 'Точка А',
-                value: address,
-              ),
-              if (destination != null && destination.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.flag_outlined,
-                  label: 'Точка Б',
-                  value: destination,
-                ),
-              if ((data['comment']?.toString() ?? '').isNotEmpty)
-                _InfoRow(
-                  icon: Icons.notes_outlined,
-                  label: 'Детали',
-                  value: data['comment'].toString(),
-                ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 58,
-                child: FilledButton.icon(
-                  onPressed: () => _departedForOrder(orderId),
-                  icon: const Icon(Icons.directions_car_filled_outlined),
-                  label: const Text(
-                    'Выехал на заказ',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              if (orderMarker != null) MarkerLayer(markers: [orderMarker]),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _driverLocation,
+                    width: 24,
+                    height: 24,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.blueAccent,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 3),
+                      ),
+                    ),
                   ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFF3C622),
-                    foregroundColor: const Color(0xFF11120E),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: OutlinedButton.icon(
-                  onPressed: () => _didNotAgree(orderId),
-                  icon: const Icon(Icons.undo_rounded),
-                  label: const Text('Не договорились'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: const BorderSide(color: Colors.white24),
-                  ),
-                ),
+                ],
               ),
             ],
           ),
-        ),
+          Positioned(
+            right: 16,
+            top: 16,
+            child: _StatusChip(
+              icon: Icons.lock_clock_outlined,
+              label: remaining == null ? 'ЗАКАЗ В РЕЙСЕ' : 'РАДАР ПАУЗА',
+              color: const Color(0xFFF3C622),
+            ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: 238,
+            child: FloatingActionButton.small(
+              heroTag: 'center-on-driver-active-order',
+              onPressed: _centerOnDriver,
+              tooltip: 'Моё местоположение',
+              backgroundColor: const Color(0xFF171914),
+              foregroundColor: const Color(0xFFF3C622),
+              child: const Icon(Icons.my_location),
+            ),
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: Material(
+              color: const Color(0xF5171914),
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.navigation_rounded,
+                          color: Color(0xFFF3C622),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            type,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        if (remaining != null)
+                          Text(
+                            _formatRemaining(remaining),
+                            style: const TextStyle(
+                              color: Color(0xFFF3C622),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    _CompactInfoRow(
+                      icon: Icons.location_on_outlined,
+                      text: destination?.isNotEmpty == true
+                          ? '$address → $destination'
+                          : address,
+                    ),
+                    if (comment.isNotEmpty)
+                      _CompactInfoRow(
+                        icon: Icons.notes_outlined,
+                        text: comment,
+                      ),
+                    if (phone.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => _callClient(phone),
+                              icon: const Icon(Icons.call_outlined),
+                              label: const Text('Позвонить'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFF3C622),
+                                foregroundColor: const Color(0xFF11120E),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _openWhatsApp(phone),
+                              icon: const Icon(Icons.chat_outlined),
+                              label: const Text('WhatsApp'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: const BorderSide(color: Colors.white30),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (pending && orderId != null) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: FilledButton.icon(
+                          onPressed: () => _departedForOrder(orderId),
+                          icon: const Icon(
+                            Icons.directions_car_filled_outlined,
+                          ),
+                          label: const Text('Выехал на заказ'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFF3C622),
+                            foregroundColor: const Color(0xFF11120E),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 44,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _didNotAgree(orderId),
+                          icon: const Icon(Icons.undo_rounded),
+                          label: const Text('Не договорились'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: const BorderSide(color: Colors.white24),
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (remaining != null) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Новые заявки скрыты до окончания текущего заказа',
+                        style: TextStyle(color: Colors.white38, fontSize: 11),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -680,21 +817,26 @@ class _RadarScreenState extends State<RadarScreen> {
     final currentOrderQuery = FirebaseFirestore.instance
         .collection('orders')
         .where('driverId', isEqualTo: user.uid)
-        .where('status', isEqualTo: 'in_progress')
+        .where('status', whereIn: ['in_progress', 'accepted'])
         .limit(1);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: driverRef.snapshots(),
       builder: (context, driverSnapshot) {
         final cooldownUntil = _cooldownUntil(driverSnapshot.data?.data());
-        if (cooldownUntil != null && cooldownUntil.isAfter(DateTime.now())) {
-          return _buildCooldownScreen(cooldownUntil);
-        }
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: currentOrderQuery.snapshots(),
           builder: (context, orderSnapshot) {
+            final hasCooldown =
+                cooldownUntil != null && cooldownUntil.isAfter(DateTime.now());
             if (orderSnapshot.hasData && orderSnapshot.data!.docs.isNotEmpty) {
               final order = orderSnapshot.data!.docs.first;
-              return _buildCurrentOrderScreen(order.id, order.data());
+              return _buildActiveOrderMap(
+                order: {...order.data(), '_orderId': order.id},
+                cooldownUntil: hasCooldown ? cooldownUntil : null,
+              );
+            }
+            if (hasCooldown) {
+              return _buildActiveOrderMap(cooldownUntil: cooldownUntil);
             }
             return _buildRadar();
           },
@@ -838,6 +980,31 @@ class _RadarScreenState extends State<RadarScreen> {
       ),
     );
   }
+}
+
+class _CompactInfoRow extends StatelessWidget {
+  const _CompactInfoRow({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: Colors.white54, size: 17),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _InfoRow extends StatelessWidget {
