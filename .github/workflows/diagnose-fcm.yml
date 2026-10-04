@@ -37,6 +37,7 @@ jobs:
           GOOGLE_CLOUD_PROJECT: techzakaz-e273a
           GCLOUD_PROJECT: techzakaz-e273a
         run: |
+          set +e
           set -uo pipefail
           echo '=== Recent FCM log entries ==='
           gcloud logging read \
