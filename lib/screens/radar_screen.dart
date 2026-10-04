@@ -12,12 +12,29 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/push_notification_service.dart';
 
 const vehicleTypes = <String>[
-  'Эвакуатор',
-  'Манипулятор',
-  'Автовышка',
-  'Автокран',
-  'Экскаватор',
+  'эвакуатор',
+  'манипулятор',
+  'автовышка',
+  'автокран',
+  'экскаватор',
 ];
+
+String vehicleTypeLabel(String value) {
+  switch (value) {
+    case 'эвакуатор':
+      return 'Эвакуатор';
+    case 'манипулятор':
+      return 'Манипулятор';
+    case 'автовышка':
+      return 'Автовышка';
+    case 'автокран':
+      return 'Автокран';
+    case 'экскаватор':
+      return 'Экскаватор';
+    default:
+      return value;
+  }
+}
 
 class RadarScreen extends StatefulWidget {
   const RadarScreen({super.key});
@@ -195,8 +212,12 @@ class _RadarScreenState extends State<RadarScreen> {
   }
 
   bool _isVisibleOrder(Map<String, dynamic> data) {
-    final orderType = (data['vehicleType'] ?? data['type'])?.toString().trim();
-    return data['status']?.toString() == 'active' && orderType == _vehicleType;
+    final orderType = (data['vehicleType'] ?? data['type'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    return data['status']?.toString() == 'active' &&
+        orderType == _vehicleType?.toLowerCase();
   }
 
   Future<void> _saveVehicleType(String? value) async {
@@ -908,8 +929,10 @@ class _RadarScreenState extends State<RadarScreen> {
                     initialValue: _vehicleType,
                     items: vehicleTypes
                         .map(
-                          (type) =>
-                              DropdownMenuItem(value: type, child: Text(type)),
+                          (type) => DropdownMenuItem(
+                            value: type,
+                            child: Text(vehicleTypeLabel(type)),
+                          ),
                         )
                         .toList(),
                     onChanged: _savingVehicleType ? null : _saveVehicleType,
@@ -970,7 +993,9 @@ class _RadarScreenState extends State<RadarScreen> {
       stream: driverRef.snapshots(),
       builder: (context, driverSnapshot) {
         final profile = driverSnapshot.data?.data();
-        final savedVehicleType = profile?['vehicleType']?.toString();
+        final savedVehicleType = profile?['vehicleType']
+            ?.toString()
+            .toLowerCase();
         if (_vehicleType != savedVehicleType &&
             vehicleTypes.contains(savedVehicleType)) {
           _vehicleType = savedVehicleType;

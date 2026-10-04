@@ -18,6 +18,10 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+function normalizeVehicleType(value: unknown): string {
+  return String(value ?? '').trim().toLocaleLowerCase('ru-RU');
+}
+
 function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const earthRadiusKm = 6371;
   const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
@@ -53,7 +57,7 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
 
   const orderLat = asNumber(order.lat);
   const orderLon = asNumber(order.lon);
-  const orderVehicleType = String(order.vehicleType ?? order.type ?? '').trim();
+  const orderVehicleType = normalizeVehicleType(order.vehicleType ?? order.type);
   if (!orderVehicleType) {
     logger.warn('FCM notification skipped: order has no vehicle type', { orderId });
     return;
@@ -75,7 +79,7 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     const driverLat = asNumber(data.lat);
     const driverLon = asNumber(data.lon);
     const token = typeof data.fcmToken === 'string' ? data.fcmToken : null;
-    if (String(data.vehicleType ?? '').trim() !== orderVehicleType) {
+    if (normalizeVehicleType(data.vehicleType) !== orderVehicleType) {
       driversWithDifferentVehicleType += 1;
       continue;
     }
