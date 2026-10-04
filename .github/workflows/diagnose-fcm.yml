@@ -37,7 +37,7 @@ jobs:
           GOOGLE_CLOUD_PROJECT: techzakaz-e273a
           GCLOUD_PROJECT: techzakaz-e273a
         run: |
-          set -euo pipefail
+          set -uo pipefail
           echo '=== Recent FCM log entries ==='
           gcloud logging read \
             'resource.labels.project_id="techzakaz-e273a" AND (jsonPayload.message:"FCM" OR textPayload:"FCM")' \
@@ -45,6 +45,10 @@ jobs:
             --freshness=7d \
             --limit=100 \
             --format='json(timestamp,resource.type,resource.labels,jsonPayload.message,jsonPayload.orderId,jsonPayload.onlineDrivers,jsonPayload.nearbyDrivers,jsonPayload.uniqueRecipients,jsonPayload.driversWithoutLocation,jsonPayload.driversWithoutToken,jsonPayload.driversWithDifferentVehicleType,jsonPayload.orderVehicleType,jsonPayload.radiusKm,jsonPayload.recipients,jsonPayload.successCount,jsonPayload.failureCount,jsonPayload.failureCodes,jsonPayload.failureDetails,jsonPayload.error)'
+          logging_status=$?
+          if [ "$logging_status" -ne 0 ]; then
+            echo "WARNING: Cloud Logging query failed with exit code $logging_status. Grant roles/logging.viewer to the deployment service account and rerun this workflow."
+          fi
 
           echo '=== Latest orders and driver profile summaries ==='
           node <<'NODE'
