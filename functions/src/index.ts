@@ -69,6 +69,7 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
 
   const driversSnapshot = await db.collection('drivers').where('isOnline', '==', true).get();
   const tokens: string[] = [];
+  const selectionDetails: Array<Record<string, unknown>> = [];
   let driversWithoutLocation = 0;
   let driversWithoutToken = 0;
   let driversWithDifferentVehicleType = 0;
@@ -79,23 +80,46 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     const driverLat = asNumber(data.lat);
     const driverLon = asNumber(data.lon);
     const token = typeof data.fcmToken === 'string' ? data.fcmToken : null;
+    const candidate = {
+      uid: driver.id,
+      vehicleType: data.vehicleType ?? null,
+      distanceKm: null as number | null,
+      hasLocation: driverLat !== null && driverLon !== null,
+      hasToken: Boolean(token),
+      selected: false,
+      reason: '',
+    };
     if (normalizeVehicleType(data.vehicleType) !== orderVehicleType) {
       driversWithDifferentVehicleType += 1;
+      candidate.reason = 'vehicle_type_mismatch';
+      selectionDetails.push(candidate);
       continue;
     }
     if (driverLat === null || driverLon === null) {
       driversWithoutLocation += 1;
+      candidate.reason = 'missing_location';
+      selectionDetails.push(candidate);
       continue;
     }
     if (!token) {
       driversWithoutToken += 1;
+      candidate.distanceKm = distanceKm(orderLat, orderLon, driverLat, driverLon);
+      candidate.reason = 'missing_token';
+      selectionDetails.push(candidate);
       continue;
     }
 
-    if (distanceKm(orderLat, orderLon, driverLat, driverLon) <= notificationRadiusKm) {
+    const driverDistanceKm = distanceKm(orderLat, orderLon, driverLat, driverLon);
+    candidate.distanceKm = driverDistanceKm;
+    if (driverDistanceKm <= notificationRadiusKm) {
       nearbyDrivers += 1;
       tokens.push(token);
+      candidate.selected = true;
+      candidate.reason = 'selected';
+    } else {
+      candidate.reason = 'outside_radius';
     }
+    selectionDetails.push(candidate);
   }
 
   const uniqueTokens = [...new Set(tokens)];
@@ -113,6 +137,16 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
 
   if (uniqueTokens.length === 0) {
     logger.info('FCM notification not sent: no nearby drivers with valid tokens', { orderId });
+    await db.collection('_notificationDispatches').doc(orderId).set({
+      orderId,
+      recipients: 0,
+      successCount: 0,
+      failureCount: 0,
+      radiusKm: notificationRadiusKm,
+      candidateDetails: selectionDetails,
+      failureCodes: ['no_recipients'],
+      createdAt: new Date().toISOString(),
+    });
     return;
   }
 
@@ -195,6 +229,7 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     radiusKm: notificationRadiusKm,
     durationMs: Date.now() - startedAt,
     failureCodes: failureDetails.map((failure) => failure.code),
+    candidateDetails: selectionDetails,
     createdAt: new Date().toISOString(),
   };
   logger.info('FCM notification flow completed', dispatchSummary);
