@@ -1,0 +1,92 @@
+name: Diagnose FCM Production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Admin SDK dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Read production FCM logs and driver profiles
+        env:
+          GOOGLE_CLOUD_PROJECT: techzakaz-e273a
+          GCLOUD_PROJECT: techzakaz-e273a
+        run: |
+          set -euo pipefail
+          echo '=== Recent FCM log entries ==='
+          gcloud logging read \
+            'resource.labels.project_id="techzakaz-e273a" AND (jsonPayload.message:"FCM" OR textPayload:"FCM")' \
+            --project=techzakaz-e273a \
+            --freshness=7d \
+            --limit=100 \
+            --format='json(timestamp,resource.type,resource.labels,jsonPayload.message,jsonPayload.orderId,jsonPayload.onlineDrivers,jsonPayload.nearbyDrivers,jsonPayload.uniqueRecipients,jsonPayload.driversWithoutLocation,jsonPayload.driversWithoutToken,jsonPayload.driversWithDifferentVehicleType,jsonPayload.orderVehicleType,jsonPayload.radiusKm,jsonPayload.recipients,jsonPayload.successCount,jsonPayload.failureCount,jsonPayload.failureCodes,jsonPayload.failureDetails,jsonPayload.error)'
+
+          echo '=== Latest orders and driver profile summaries ==='
+          node <<'NODE'
+          const { initializeApp, cert } = require('firebase-admin/app');
+          const { getFirestore } = require('firebase-admin/firestore');
+          const fs = require('fs');
+          const credentials = JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'));
+          initializeApp({ credential: cert(credentials), projectId: 'techzakaz-e273a' });
+          const db = getFirestore();
+
+          const orders = await db.collection('orders').orderBy('createdAt', 'desc').limit(10).get();
+          console.log(JSON.stringify({
+            orders: orders.docs.map((doc) => {
+              const d = doc.data();
+              return {
+                id: doc.id,
+                status: d.status ?? null,
+                type: d.type ?? null,
+                vehicleType: d.vehicleType ?? null,
+                lat: d.lat ?? null,
+                lon: d.lon ?? null,
+                createdAt: d.createdAt?.toDate?.()?.toISOString?.() ?? String(d.createdAt ?? ''),
+              };
+            }),
+          }, null, 2));
+
+          const drivers = await db.collection('drivers').get();
+          console.log(JSON.stringify({
+            drivers: drivers.docs.map((doc) => {
+              const d = doc.data();
+              const token = typeof d.fcmToken === 'string' ? d.fcmToken : '';
+              return {
+                uid: doc.id,
+                isOnline: d.isOnline ?? null,
+                vehicleType: d.vehicleType ?? null,
+                lat: d.lat ?? null,
+                lon: d.lon ?? null,
+                tokenPresent: Boolean(token),
+                tokenPrefix: token ? `${token.slice(0, 10)}...` : null,
+                tokenUpdatedAt: d.tokenUpdatedAt?.toDate?.()?.toISOString?.() ?? String(d.tokenUpdatedAt ?? ''),
+                locationUpdatedAt: d.locationUpdatedAt?.toDate?.()?.toISOString?.() ?? String(d.locationUpdatedAt ?? ''),
+              };
+            }),
+          }, null, 2));
+          NODE
