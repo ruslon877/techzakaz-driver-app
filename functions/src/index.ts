@@ -53,6 +53,11 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
 
   const orderLat = asNumber(order.lat);
   const orderLon = asNumber(order.lon);
+  const orderVehicleType = String(order.vehicleType ?? order.type ?? '').trim();
+  if (!orderVehicleType) {
+    logger.warn('FCM notification skipped: order has no vehicle type', { orderId });
+    return;
+  }
   if (orderLat === null || orderLon === null) {
     logger.warn('FCM notification skipped: order has no valid coordinates', { orderId });
     return;
@@ -62,6 +67,7 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
   const tokens: string[] = [];
   let driversWithoutLocation = 0;
   let driversWithoutToken = 0;
+  let driversWithDifferentVehicleType = 0;
   let nearbyDrivers = 0;
 
   for (const driver of driversSnapshot.docs) {
@@ -69,6 +75,10 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     const driverLat = asNumber(data.lat);
     const driverLon = asNumber(data.lon);
     const token = typeof data.fcmToken === 'string' ? data.fcmToken : null;
+    if (String(data.vehicleType ?? '').trim() !== orderVehicleType) {
+      driversWithDifferentVehicleType += 1;
+      continue;
+    }
     if (driverLat === null || driverLon === null) {
       driversWithoutLocation += 1;
       continue;
@@ -92,6 +102,8 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     uniqueRecipients: uniqueTokens.length,
     driversWithoutLocation,
     driversWithoutToken,
+    driversWithDifferentVehicleType,
+    orderVehicleType,
     radiusKm: notificationRadiusKm,
   });
 

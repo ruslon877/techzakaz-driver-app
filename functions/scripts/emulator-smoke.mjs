@@ -7,22 +7,33 @@ const db = getFirestore();
 
 const nearToken = 'emulator-token-near';
 const farToken = 'emulator-token-far';
+const wrongTypeToken = 'emulator-token-wrong-type';
 
 await db.collection('drivers').doc('near-driver').set({
   fcmToken: nearToken,
   isOnline: true,
+  vehicleType: 'Эвакуатор',
   lat: 43.238949,
   lon: 76.889709,
 });
 await db.collection('drivers').doc('far-driver').set({
   fcmToken: farToken,
   isOnline: true,
+  vehicleType: 'Эвакуатор',
   lat: 43.35,
   lon: 77.15,
+});
+await db.collection('drivers').doc('wrong-type-driver').set({
+  fcmToken: wrongTypeToken,
+  isOnline: true,
+  vehicleType: 'Манипулятор',
+  lat: 43.238949,
+  lon: 76.889709,
 });
 
 const order = await db.collection('orders').add({
   type: 'Эвакуатор',
+  vehicleType: 'Эвакуатор',
   status: 'active',
   lat: 43.238949,
   lon: 76.889709,

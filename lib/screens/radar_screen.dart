@@ -11,6 +11,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/push_notification_service.dart';
 
+const vehicleTypes = <String>[
+  'Эвакуатор',
+  'Манипулятор',
+  'Автовышка',
+  'Автокран',
+  'Экскаватор',
+];
+
 class RadarScreen extends StatefulWidget {
   const RadarScreen({super.key});
 
@@ -30,6 +38,8 @@ class _RadarScreenState extends State<RadarScreen> {
   bool _isLocating = true;
   bool _mapReady = false;
   String? _locationMessage;
+  String? _vehicleType;
+  bool _savingVehicleType = false;
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<RemoteMessage>? _messageSubscription;
   Timer? _cooldownTimer;
@@ -185,7 +195,32 @@ class _RadarScreenState extends State<RadarScreen> {
   }
 
   bool _isVisibleOrder(Map<String, dynamic> data) {
-    return data['status']?.toString() == 'active';
+    final orderType = (data['vehicleType'] ?? data['type'])?.toString().trim();
+    return data['status']?.toString() == 'active' && orderType == _vehicleType;
+  }
+
+  Future<void> _saveVehicleType(String? value) async {
+    if (value == null || value.isEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    setState(() => _savingVehicleType = true);
+    try {
+      await FirebaseFirestore.instance.collection('drivers').doc(user.uid).set({
+        'driverId': user.uid,
+        'vehicleType': value,
+        'isOnline': true,
+        'vehicleTypeUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      if (mounted) setState(() => _vehicleType = value);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось сохранить тип техники')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingVehicleType = false);
+    }
   }
 
   List<Marker> _markersFrom(QuerySnapshot<Map<String, dynamic>> snapshot) {
@@ -837,6 +872,88 @@ class _RadarScreenState extends State<RadarScreen> {
     );
   }
 
+  Widget _buildVehicleTypeScreen() {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B0C0A),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.construction,
+                    color: Color(0xFFF3C622),
+                    size: 52,
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Ваша техника',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Выберите тип техники — мы покажем только подходящие заявки и будем отправлять релевантные уведомления.',
+                    style: TextStyle(color: Colors.white60, height: 1.4),
+                  ),
+                  const SizedBox(height: 28),
+                  DropdownButtonFormField<String>(
+                    initialValue: _vehicleType,
+                    items: vehicleTypes
+                        .map(
+                          (type) =>
+                              DropdownMenuItem(value: type, child: Text(type)),
+                        )
+                        .toList(),
+                    onChanged: _savingVehicleType ? null : _saveVehicleType,
+                    dropdownColor: const Color(0xFF171914),
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    decoration: InputDecoration(
+                      labelText: 'Тип спецтехники',
+                      labelStyle: const TextStyle(color: Colors.white54),
+                      filled: true,
+                      fillColor: const Color(0xFF171914),
+                      prefixIcon: const Icon(
+                        Icons.local_shipping_outlined,
+                        color: Color(0xFFF3C622),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFF3B3D34)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(
+                          color: Color(0xFFF3C622),
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_savingVehicleType) ...[
+                    const SizedBox(height: 18),
+                    const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFF3C622),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -852,6 +969,15 @@ class _RadarScreenState extends State<RadarScreen> {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: driverRef.snapshots(),
       builder: (context, driverSnapshot) {
+        final profile = driverSnapshot.data?.data();
+        final savedVehicleType = profile?['vehicleType']?.toString();
+        if (_vehicleType != savedVehicleType &&
+            vehicleTypes.contains(savedVehicleType)) {
+          _vehicleType = savedVehicleType;
+        }
+        if (!vehicleTypes.contains(_vehicleType)) {
+          return _buildVehicleTypeScreen();
+        }
         final cooldownUntil = _cooldownUntil(driverSnapshot.data?.data());
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: currentOrderQuery.snapshots(),
