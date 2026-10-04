@@ -49,5 +49,5 @@ jobs:
         working-directory: functions
         run: npm run build
 
-      - name: Deploy Firebase Functions
-        run: npx firebase-tools deploy --only functions --project techzakaz-e273a --non-interactive
+      - name: Deploy Firestore Rules and Firebase Functions
+        run: npx firebase-tools deploy --only firestore:rules,functions --project techzakaz-e273a --non-interactive
