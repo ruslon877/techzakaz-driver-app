@@ -54,7 +54,9 @@ class _RadarScreenState extends State<RadarScreen> {
   LatLng _driverLocation = _almaty;
   bool _isLocating = true;
   bool _mapReady = false;
+  bool _canOpenLocationSettings = false;
   String? _locationMessage;
+  String? _notificationMessage;
   String? _vehicleType;
   bool _savingVehicleType = false;
   StreamSubscription<Position>? _positionSubscription;
@@ -76,33 +78,52 @@ class _RadarScreenState extends State<RadarScreen> {
     if (user == null) return;
 
     try {
-      await _pushNotifications.initializeForUser(user);
+      final registered = await _pushNotifications.initializeForUser(user);
+      if (mounted) {
+        setState(() {
+          _notificationMessage = registered ? null : 'Уведомления выключены или FCM-токен не зарегистрирован. Разрешите уведомления в настройках приложения.';
+        });
+      }
       _messageSubscription = _pushNotifications.foregroundMessages.listen((
         message,
       ) {
         if (!mounted) return;
         unawaited(_pushNotifications.showForegroundNotification(message));
       });
-    } catch (_) {
-      // Push delivery must not block access to the radar.
+    } catch (error) {
+      debugPrint('FCM initialization failed: $error');
+      if (mounted) {
+        setState(() {
+          _notificationMessage = 'Не удалось зарегистрировать уведомления. Проверьте интернет и настройки приложения.';
+        });
+      }
     }
   }
 
   Future<void> _loadDriverLocation() async {
     try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _setLocationMessage('Геолокация выключена. Показываем Алматы.');
-        return;
-      }
-
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        _setLocationMessage('Нет доступа к геолокации. Показываем Алматы.');
+      if (permission == LocationPermission.deniedForever) {
+        _setLocationMessage(
+          'Доступ к геолокации заблокирован. Разрешите его в настройках приложения.',
+          canOpenSettings: true,
+        );
+        return;
+      }
+      if (permission == LocationPermission.denied) {
+        _setLocationMessage('Разрешение на геолокацию не предоставлено.');
+        return;
+      }
+
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _setLocationMessage(
+          'Служба геолокации выключена. Включите GPS, чтобы получать заявки рядом.',
+          canOpenSettings: true,
+        );
         return;
       }
 
@@ -203,11 +224,12 @@ class _RadarScreenState extends State<RadarScreen> {
     super.dispose();
   }
 
-  void _setLocationMessage(String message) {
+  void _setLocationMessage(String message, {bool canOpenSettings = false}) {
     if (!mounted) return;
     setState(() {
       _isLocating = false;
       _locationMessage = message;
+      _canOpenLocationSettings = canOpenSettings;
     });
   }
 
@@ -1138,6 +1160,16 @@ class _RadarScreenState extends State<RadarScreen> {
               ],
             ),
           ),
+          if (_notificationMessage != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              top: 70,
+              child: SafeArea(
+                bottom: false,
+                child: _MapMessage(message: _notificationMessage!),
+              ),
+            ),
           if (_locationMessage != null)
             Positioned(
               left: 16,
@@ -1145,7 +1177,41 @@ class _RadarScreenState extends State<RadarScreen> {
               bottom: 20,
               child: SafeArea(
                 bottom: true,
-                child: _MapMessage(message: _locationMessage!),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 8, 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF171914).withValues(alpha: 0.96),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.orangeAccent),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.location_off_outlined,
+                        color: Colors.orangeAccent,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _locationMessage!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                      if (_canOpenLocationSettings)
+                        IconButton(
+                          onPressed: Geolocator.openAppSettings,
+                          tooltip: 'Открыть настройки',
+                          icon: const Icon(
+                            Icons.settings_outlined,
+                            color: Color(0xFFF3C622),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
           Positioned(

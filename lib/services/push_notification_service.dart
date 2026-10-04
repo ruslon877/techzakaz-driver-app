@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/foundation.dart';
 
 class PushNotificationService {
   PushNotificationService._();
@@ -20,8 +21,8 @@ class PushNotificationService {
 
   Stream<RemoteMessage> get foregroundMessages => FirebaseMessaging.onMessage;
 
-  Future<void> initializeForUser(User user) async {
-    if (_initializedUid == user.uid) return;
+  Future<bool> initializeForUser(User user) async {
+    if (_initializedUid == user.uid) return true;
     await _tokenSubscription?.cancel();
     _tokenSubscription = null;
 
@@ -31,7 +32,10 @@ class PushNotificationService {
       sound: true,
       provisional: false,
     );
-    if (settings.authorizationStatus == AuthorizationStatus.denied) return;
+    if (settings.authorizationStatus == AuthorizationStatus.denied) {
+      debugPrint('FCM permission denied for ${user.uid}');
+      return false;
+    }
 
     await _messaging.setForegroundNotificationPresentationOptions(
       alert: true,
@@ -39,12 +43,25 @@ class PushNotificationService {
       sound: true,
     );
     await _initializeLocalNotifications();
+    final androidImplementation = _localNotifications
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    await androidImplementation?.requestNotificationsPermission();
 
     final token = await _messaging.getToken();
-    if (token != null) await _saveToken(user.uid, token);
+    if (token == null || token.isEmpty) {
+      debugPrint('FCM token is empty for ${user.uid}');
+      return false;
+    }
+    await _saveToken(user.uid, token);
 
-    _tokenSubscription = _messaging.onTokenRefresh.listen((token) => _saveToken(user.uid, token));
+    _tokenSubscription = _messaging.onTokenRefresh.listen(
+      (token) => _saveToken(user.uid, token),
+    );
     _initializedUid = user.uid;
+    debugPrint('FCM registered for ${user.uid}: ${token.substring(0, 12)}...');
+    return true;
   }
 
   Future<void> _initializeLocalNotifications() async {
@@ -54,7 +71,10 @@ class PushNotificationService {
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
     await _localNotifications.initialize(settings: initializationSettings);
-    final androidImplementation = _localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    final androidImplementation = _localNotifications
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     await androidImplementation?.createNotificationChannel(
       const AndroidNotificationChannel(
         'orders',
@@ -70,8 +90,14 @@ class PushNotificationService {
   Future<void> showForegroundNotification(RemoteMessage message) async {
     await _initializeLocalNotifications();
     final notification = message.notification;
-    final title = notification?.title ?? message.data['title']?.toString() ?? 'Новая заявка рядом';
-    final body = notification?.body ?? message.data['body']?.toString() ?? 'Проверьте Радар заявок';
+    final title =
+        notification?.title ??
+        message.data['title']?.toString() ??
+        'Новая заявка рядом';
+    final body =
+        notification?.body ??
+        message.data['body']?.toString() ??
+        'Проверьте Радар заявок';
     await _localNotifications.show(
       id: message.hashCode,
       title: title,
@@ -91,7 +117,11 @@ class PushNotificationService {
     );
   }
 
-  Future<void> updateDriverLocation({required User user, required double latitude, required double longitude}) async {
+  Future<void> updateDriverLocation({
+    required User user,
+    required double latitude,
+    required double longitude,
+  }) async {
     await _firestore.collection('drivers').doc(user.uid).set({
       'driverId': user.uid,
       'fcmToken': await _messaging.getToken(),
