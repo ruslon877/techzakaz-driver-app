@@ -374,104 +374,128 @@ class _RadarScreenState extends State<RadarScreen> {
     final status = data['status']?.toString() ?? 'active';
     final lat = _asDouble(data['lat']);
     final lon = _asDouble(data['lon']);
+    final comment = data['comment']?.toString() ?? '';
 
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF171914),
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        final maxHeight = MediaQuery.sizeOf(sheetContext).height * 0.78;
+        return SizedBox(
+          height: maxHeight,
+          child: SafeArea(
+            bottom: true,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.fiber_manual_record,
-                    color: status == 'active'
-                        ? const Color(0xFFF3C622)
-                        : Colors.lightBlueAccent,
-                    size: 12,
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.fiber_manual_record,
+                        color: status == 'active'
+                            ? const Color(0xFFF3C622)
+                            : Colors.lightBlueAccent,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Активная заявка',
+                          style: TextStyle(
+                            color: Color(0xFFF3C622),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '#${orderId.substring(0, orderId.length > 6 ? 6 : orderId.length)}',
+                        style: const TextStyle(color: Colors.white38),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Активная заявка',
-                    style: const TextStyle(
-                      color: Color(0xFFF3C622),
-                      fontWeight: FontWeight.w700,
+                  const SizedBox(height: 14),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            type,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          _InfoRow(
+                            icon: Icons.phone_outlined,
+                            label: 'Телефон клиента',
+                            value: phone,
+                          ),
+                          _InfoRow(
+                            icon: Icons.location_on_outlined,
+                            label: 'Адрес',
+                            value: address,
+                          ),
+                          if (destination != null && destination.isNotEmpty)
+                            _InfoRow(
+                              icon: Icons.flag_outlined,
+                              label: 'Точка Б',
+                              value: destination,
+                            ),
+                          if (lat != null && lon != null)
+                            _InfoRow(
+                              icon: Icons.gps_fixed,
+                              label: 'Координаты',
+                              value:
+                                  '${lat.toStringAsFixed(5)}, ${lon.toStringAsFixed(5)}',
+                            ),
+                          if (comment.isNotEmpty)
+                            _InfoRow(
+                              icon: Icons.notes_outlined,
+                              label: 'Детали',
+                              value: comment,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  Text(
-                    '#${orderId.substring(0, orderId.length > 6 ? 6 : orderId.length)}',
-                    style: const TextStyle(color: Colors.white38),
-                  ),
+                  const SizedBox(height: 10),
+                  if (status == 'active')
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton.icon(
+                        onPressed: () => _takeOrder(orderId),
+                        icon: const Icon(Icons.play_arrow_rounded),
+                        label: const Text('Взять в работу'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFF3C622),
+                          foregroundColor: const Color(0xFF11120E),
+                        ),
+                      ),
+                    )
+                  else
+                    const SizedBox(
+                      width: double.infinity,
+                      child: Text(
+                        'Эта заявка уже недоступна.',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    ),
                 ],
               ),
-              const SizedBox(height: 18),
-              Text(
-                type,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 18),
-              _InfoRow(
-                icon: Icons.phone_outlined,
-                label: 'Телефон клиента',
-                value: phone,
-              ),
-              _InfoRow(
-                icon: Icons.location_on_outlined,
-                label: 'Адрес',
-                value: address,
-              ),
-              if (destination != null && destination.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.flag_outlined,
-                  label: 'Точка Б',
-                  value: destination,
-                ),
-              if (lat != null && lon != null)
-                _InfoRow(
-                  icon: Icons.gps_fixed,
-                  label: 'Координаты',
-                  value: '${lat.toStringAsFixed(5)}, ${lon.toStringAsFixed(5)}',
-                ),
-              if ((data['comment']?.toString() ?? '').isNotEmpty)
-                _InfoRow(
-                  icon: Icons.notes_outlined,
-                  label: 'Детали',
-                  value: data['comment'].toString(),
-                ),
-              const SizedBox(height: 16),
-              if (status == 'active')
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: FilledButton.icon(
-                    onPressed: () => _takeOrder(orderId),
-                    icon: const Icon(Icons.play_arrow_rounded),
-                    label: const Text('Взять в работу'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFF3C622),
-                      foregroundColor: const Color(0xFF11120E),
-                    ),
-                  ),
-                )
-              else
-                const Text(
-                  'Эта заявка уже недоступна.',
-                  style: TextStyle(color: Colors.white54),
-                ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -666,138 +690,144 @@ class _RadarScreenState extends State<RadarScreen> {
           Positioned(
             right: 16,
             bottom: 238,
-            child: FloatingActionButton.small(
-              heroTag: 'center-on-driver-active-order',
-              onPressed: _centerOnDriver,
-              tooltip: 'Моё местоположение',
-              backgroundColor: const Color(0xFF171914),
-              foregroundColor: const Color(0xFFF3C622),
-              child: const Icon(Icons.my_location),
+            child: SafeArea(
+              bottom: true,
+              child: FloatingActionButton.small(
+                heroTag: 'center-on-driver-active-order',
+                onPressed: _centerOnDriver,
+                tooltip: 'Моё местоположение',
+                backgroundColor: const Color(0xFF171914),
+                foregroundColor: const Color(0xFFF3C622),
+                child: const Icon(Icons.my_location),
+              ),
             ),
           ),
           Positioned(
             left: 12,
             right: 12,
             bottom: 12,
-            child: Material(
-              color: const Color(0xF5171914),
-              borderRadius: BorderRadius.circular(20),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.navigation_rounded,
-                          color: Color(0xFFF3C622),
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            type,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 21,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        if (remaining != null)
-                          Text(
-                            _formatRemaining(remaining),
-                            style: const TextStyle(
-                              color: Color(0xFFF3C622),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    _CompactInfoRow(
-                      icon: Icons.location_on_outlined,
-                      text: destination?.isNotEmpty == true
-                          ? '$address → $destination'
-                          : address,
-                    ),
-                    if (comment.isNotEmpty)
-                      _CompactInfoRow(
-                        icon: Icons.notes_outlined,
-                        text: comment,
-                      ),
-                    if (phone.isNotEmpty) ...[
-                      const SizedBox(height: 12),
+            child: SafeArea(
+              bottom: true,
+              child: Material(
+                color: const Color(0xF5171914),
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       Row(
                         children: [
+                          const Icon(
+                            Icons.navigation_rounded,
+                            color: Color(0xFFF3C622),
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
                           Expanded(
-                            child: FilledButton.icon(
-                              onPressed: () => _callClient(phone),
-                              icon: const Icon(Icons.call_outlined),
-                              label: const Text('Позвонить'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFFF3C622),
-                                foregroundColor: const Color(0xFF11120E),
+                            child: Text(
+                              type,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 21,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => _openWhatsApp(phone),
-                              icon: const Icon(Icons.chat_outlined),
-                              label: const Text('WhatsApp'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(color: Colors.white30),
+                          if (remaining != null)
+                            Text(
+                              _formatRemaining(remaining),
+                              style: const TextStyle(
+                                color: Color(0xFFF3C622),
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                          ),
                         ],
                       ),
-                    ],
-                    if (pending && orderId != null) ...[
                       const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: FilledButton.icon(
-                          onPressed: () => _departedForOrder(orderId),
-                          icon: const Icon(
-                            Icons.directions_car_filled_outlined,
-                          ),
-                          label: const Text('Выехал на заказ'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFFF3C622),
-                            foregroundColor: const Color(0xFF11120E),
+                      _CompactInfoRow(
+                        icon: Icons.location_on_outlined,
+                        text: destination?.isNotEmpty == true
+                            ? '$address → $destination'
+                            : address,
+                      ),
+                      if (comment.isNotEmpty)
+                        _CompactInfoRow(
+                          icon: Icons.notes_outlined,
+                          text: comment,
+                        ),
+                      if (phone.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: () => _callClient(phone),
+                                icon: const Icon(Icons.call_outlined),
+                                label: const Text('Позвонить'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFF3C622),
+                                  foregroundColor: const Color(0xFF11120E),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () => _openWhatsApp(phone),
+                                icon: const Icon(Icons.chat_outlined),
+                                label: const Text('WhatsApp'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(color: Colors.white30),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (pending && orderId != null) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: FilledButton.icon(
+                            onPressed: () => _departedForOrder(orderId),
+                            icon: const Icon(
+                              Icons.directions_car_filled_outlined,
+                            ),
+                            label: const Text('Выехал на заказ'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFF3C622),
+                              foregroundColor: const Color(0xFF11120E),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 44,
-                        child: OutlinedButton.icon(
-                          onPressed: () => _didNotAgree(orderId),
-                          icon: const Icon(Icons.undo_rounded),
-                          label: const Text('Не договорились'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
-                            side: const BorderSide(color: Colors.white24),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 44,
+                          child: OutlinedButton.icon(
+                            onPressed: () => _didNotAgree(orderId),
+                            icon: const Icon(Icons.undo_rounded),
+                            label: const Text('Не договорились'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: const BorderSide(color: Colors.white24),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
+                      if (remaining != null) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Новые заявки скрыты до окончания текущего заказа',
+                          style: TextStyle(color: Colors.white38, fontSize: 11),
+                        ),
+                      ],
                     ],
-                    if (remaining != null) ...[
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Новые заявки скрыты до окончания текущего заказа',
-                        style: TextStyle(color: Colors.white38, fontSize: 11),
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -962,18 +992,24 @@ class _RadarScreenState extends State<RadarScreen> {
               left: 16,
               right: 16,
               bottom: 20,
-              child: _MapMessage(message: _locationMessage!),
+              child: SafeArea(
+                bottom: true,
+                child: _MapMessage(message: _locationMessage!),
+              ),
             ),
           Positioned(
             right: 16,
             bottom: _locationMessage == null ? 24 : 92,
-            child: FloatingActionButton.small(
-              heroTag: 'center-on-driver',
-              onPressed: _centerOnDriver,
-              tooltip: 'Моё местоположение',
-              backgroundColor: const Color(0xFF171914),
-              foregroundColor: const Color(0xFFF3C622),
-              child: const Icon(Icons.my_location),
+            child: SafeArea(
+              bottom: true,
+              child: FloatingActionButton.small(
+                heroTag: 'center-on-driver',
+                onPressed: _centerOnDriver,
+                tooltip: 'Моё местоположение',
+                backgroundColor: const Color(0xFF171914),
+                foregroundColor: const Color(0xFFF3C622),
+                child: const Icon(Icons.my_location),
+              ),
             ),
           ),
         ],
