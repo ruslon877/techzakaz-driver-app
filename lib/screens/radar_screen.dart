@@ -59,6 +59,9 @@ class _RadarScreenState extends State<RadarScreen> {
   String? _notificationMessage;
   String? _vehicleType;
   bool _savingVehicleType = false;
+  bool _isOnline = true;
+  bool _savingOnline = false;
+  String? _onlineInitializedUid;
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<RemoteMessage>? _messageSubscription;
   Timer? _cooldownTimer;
@@ -238,8 +241,52 @@ class _RadarScreenState extends State<RadarScreen> {
         ?.toString()
         .trim()
         .toLowerCase();
-    return data['status']?.toString() == 'active' &&
+    return _isOnline &&
+        data['status']?.toString() == 'active' &&
         orderType == _vehicleType?.toLowerCase();
+  }
+
+  void _ensureOnlineStatus(User user, Map<String, dynamic>? profile) {
+    if (_onlineInitializedUid == user.uid) return;
+    _onlineInitializedUid = user.uid;
+    final savedStatus = profile?['isOnline'];
+    if (savedStatus is bool) {
+      _isOnline = savedStatus;
+      return;
+    }
+    _isOnline = true;
+    unawaited(
+      FirebaseFirestore.instance.collection('drivers').doc(user.uid).set({
+        'driverId': user.uid,
+        'isOnline': true,
+        'onlineUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)),
+    );
+  }
+
+  Future<void> _setOnlineStatus(bool value) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || _savingOnline) return;
+    final previous = _isOnline;
+    setState(() {
+      _isOnline = value;
+      _savingOnline = true;
+    });
+    try {
+      await FirebaseFirestore.instance.collection('drivers').doc(user.uid).set({
+        'driverId': user.uid,
+        'isOnline': value,
+        'onlineUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isOnline = previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось изменить статус: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _savingOnline = false);
+    }
   }
 
   Future<void> _saveVehicleType(String? value) async {
@@ -251,7 +298,6 @@ class _RadarScreenState extends State<RadarScreen> {
       await FirebaseFirestore.instance.collection('drivers').doc(user.uid).set({
         'driverId': user.uid,
         'vehicleType': value,
-        'isOnline': true,
         'vehicleTypeUpdatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       if (mounted) setState(() => _vehicleType = value);
@@ -1015,6 +1061,13 @@ class _RadarScreenState extends State<RadarScreen> {
       stream: driverRef.snapshots(),
       builder: (context, driverSnapshot) {
         final profile = driverSnapshot.data?.data();
+        if (driverSnapshot.hasData) {
+          _ensureOnlineStatus(user, profile);
+        }
+        final savedOnline = profile?['isOnline'];
+        if (savedOnline is bool && savedOnline != _isOnline && !_savingOnline) {
+          _isOnline = savedOnline;
+        }
         final savedVehicleType = profile?['vehicleType']
             ?.toString()
             .toLowerCase();
@@ -1041,14 +1094,14 @@ class _RadarScreenState extends State<RadarScreen> {
             if (hasCooldown) {
               return _buildActiveOrderMap(cooldownUntil: cooldownUntil);
             }
-            return _buildRadar();
+            return _buildRadar(isOnline: _isOnline);
           },
         );
       },
     );
   }
 
-  Widget _buildRadar() {
+  Widget _buildRadar({required bool isOnline}) {
     return Scaffold(
       backgroundColor: const Color(0xFF0B0C0A),
       appBar: AppBar(
@@ -1136,10 +1189,57 @@ class _RadarScreenState extends State<RadarScreen> {
               children: [
                 _StatusChip(
                   icon: Icons.circle,
-                  label: _isLocating ? 'Определяем позицию' : 'Вы на линии',
-                  color: _isLocating ? Colors.orange : Colors.greenAccent,
+                  label: _isLocating
+                      ? 'Определяем позицию'
+                      : isOnline
+                      ? 'Вы на линии'
+                      : 'Не на линии',
+                  color: _isLocating
+                      ? Colors.orange
+                      : isOnline
+                      ? Colors.greenAccent
+                      : Colors.redAccent,
                 ),
                 const Spacer(),
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xEE171914),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  padding: const EdgeInsets.only(left: 8, right: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isOnline ? 'На линии' : 'Оффлайн',
+                        style: TextStyle(
+                          color: isOnline ? Colors.greenAccent : Colors.white54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      SizedBox(
+                        width: 42,
+                        height: 32,
+                        child: _savingOnline
+                            ? const Padding(
+                                padding: EdgeInsets.all(9),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Color(0xFFF3C622),
+                                ),
+                              )
+                            : Switch.adaptive(
+                                value: isOnline,
+                                onChanged: _setOnlineStatus,
+                                activeThumbColor: const Color(0xFFF3C622),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: _ordersQuery.snapshots(),
                   builder: (context, snapshot) {
@@ -1168,6 +1268,18 @@ class _RadarScreenState extends State<RadarScreen> {
               child: SafeArea(
                 bottom: false,
                 child: _MapMessage(message: _notificationMessage!),
+              ),
+            ),
+          if (!isOnline)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 20,
+              child: SafeArea(
+                bottom: true,
+                child: _MapMessage(
+                  message: 'Вы не на линии. Новые заказы не поступают.',
+                ),
               ),
             ),
           if (_locationMessage != null)
@@ -1216,7 +1328,7 @@ class _RadarScreenState extends State<RadarScreen> {
             ),
           Positioned(
             right: 16,
-            bottom: _locationMessage == null ? 24 : 92,
+            bottom: _locationMessage == null && isOnline ? 24 : 92,
             child: SafeArea(
               bottom: true,
               child: FloatingActionButton.small(

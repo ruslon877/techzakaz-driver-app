@@ -128,7 +128,6 @@ class PushNotificationService {
       'lat': latitude,
       'lon': longitude,
       'locationUpdatedAt': FieldValue.serverTimestamp(),
-      'isOnline': true,
     }, SetOptions(merge: true));
   }
 
@@ -143,7 +142,6 @@ class PushNotificationService {
     await _firestore.collection('drivers').doc(uid).set({
       'driverId': uid,
       'fcmToken': token,
-      'isOnline': true,
       'tokenUpdatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
