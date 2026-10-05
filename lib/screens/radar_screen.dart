@@ -61,6 +61,7 @@ class _RadarScreenState extends State<RadarScreen> {
   String? _locationMessage;
   String? _notificationMessage;
   String? _vehicleType;
+  bool _hasAccess = true;
   bool _savingVehicleType = false;
   bool _isOnline = true;
   bool _savingOnline = false;
@@ -254,7 +255,7 @@ class _RadarScreenState extends State<RadarScreen> {
     });
   }
 
-  bool _isVisibleOrder(Map<String, dynamic> data) {
+  bool _isMatchingActiveOrder(Map<String, dynamic> data) {
     final orderType = (data['vehicleType'] ?? data['type'])
         ?.toString()
         .trim()
@@ -262,6 +263,22 @@ class _RadarScreenState extends State<RadarScreen> {
     return _isOnline &&
         data['status']?.toString() == 'active' &&
         orderType == _vehicleType?.toLowerCase();
+  }
+
+  bool _isVisibleOrder(Map<String, dynamic> data) {
+    return _hasAccess && _isMatchingActiveOrder(data);
+  }
+
+  bool _profileHasAccess(Map<String, dynamic>? profile) {
+    final freeOrdersLeft = (profile?['freeOrdersLeft'] as num?)?.toInt() ?? 0;
+    final value = profile?['subscriptionEndsAt'];
+    final subscriptionEndsAt = value is Timestamp
+        ? value.toDate()
+        : value is DateTime
+            ? value
+            : DateTime.tryParse(value?.toString() ?? '');
+    return freeOrdersLeft > 0 ||
+        (subscriptionEndsAt != null && subscriptionEndsAt.isAfter(DateTime.now()));
   }
 
   void _ensureOnlineStatus(User user, Map<String, dynamic>? profile) {
@@ -792,6 +809,14 @@ class _RadarScreenState extends State<RadarScreen> {
     );
   }
 
+  void _showAccessPaywall() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('Модуль оплаты находится в разработке')),
+      );
+  }
+
   DateTime? _cooldownUntil(Map<String, dynamic>? data) {
     final value = data?['cooldownUntil'];
     if (value is Timestamp) return value.toDate();
@@ -878,7 +903,7 @@ class _RadarScreenState extends State<RadarScreen> {
     try {
       final snapshot = await _ordersQuery.get();
       final orders = snapshot.docs
-          .where((document) => _isVisibleOrder(document.data()))
+          .where((document) => _isMatchingActiveOrder(document.data()))
           .toList();
       if (!mounted) return;
       showModalBottomSheet<void>(
@@ -905,7 +930,14 @@ class _RadarScreenState extends State<RadarScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         leading: const CircleAvatar(backgroundColor: Color(0xFFF3C622), foregroundColor: Colors.black, child: Icon(Icons.construction)),
                         title: Text(data['type']?.toString() ?? 'Спецтехника', style: const TextStyle(fontWeight: FontWeight.w800)),
-                        subtitle: Text(data['address']?.toString() ?? 'Адрес не указан', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60)),
+                        subtitle: Text(
+                          _hasAccess
+                              ? (data['address']?.toString() ?? 'Адрес не указан')
+                              : 'Контакты доступны по подписке 🔒',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white60),
+                        ),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () {
                           Navigator.pop(sheetContext);
@@ -1303,6 +1335,7 @@ class _RadarScreenState extends State<RadarScreen> {
         final profile = driverSnapshot.data?.data();
         if (driverSnapshot.hasData) {
           _ensureOnlineStatus(user, profile);
+          _hasAccess = _profileHasAccess(profile);
         }
         final savedOnline = profile?['isOnline'];
         if (savedOnline is bool && savedOnline != _isOnline && !_savingOnline) {
@@ -1491,7 +1524,7 @@ class _RadarScreenState extends State<RadarScreen> {
                     final count =
                         snapshot.data?.docs
                             .where(
-                              (document) => _isVisibleOrder(document.data()),
+                              (document) => _isMatchingActiveOrder(document.data()),
                             )
                             .length ??
                         0;
@@ -1517,6 +1550,43 @@ class _RadarScreenState extends State<RadarScreen> {
               child: SafeArea(
                 bottom: false,
                 child: _MapMessage(message: _notificationMessage!),
+              ),
+            ),
+          if (isOnline && !_hasAccess)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 76,
+              child: SafeArea(
+                bottom: true,
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xF5171914),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: const Color(0xFFF3C622).withValues(alpha: 0.65),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.lock_outline_rounded, color: Color(0xFFF3C622), size: 26),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Рядом есть заявки, но доступ к контактам закрыт.',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, height: 1.25),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: _showAccessPaywall,
+                        style: TextButton.styleFrom(foregroundColor: const Color(0xFFF3C622)),
+                        child: const Text('Получить доступ'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           if (!isOnline)
