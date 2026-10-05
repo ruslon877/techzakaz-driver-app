@@ -22,7 +22,18 @@ class DriverCabinetScreen extends StatelessWidget {
           final name = data['name']?.toString() ?? 'Водитель';
           final type = data['equipmentType']?.toString() ?? 'Тип не указан';
           final plate = data['licensePlate']?.toString() ?? 'Не указан';
-          final verified = data['isVerified'] == true;
+          final verified = data['verificationStatus']?.toString().toLowerCase() == 'approved';
+          final freeOrdersLeft = (data['freeOrdersLeft'] as num?)?.toInt() ?? 0;
+          final subscriptionValue = data['subscriptionEndsAt'];
+          final subscriptionEndsAt = subscriptionValue is Timestamp
+              ? subscriptionValue.toDate()
+              : subscriptionValue is DateTime
+                  ? subscriptionValue
+                  : DateTime.tryParse(subscriptionValue?.toString() ?? '');
+          final hasSubscription = subscriptionEndsAt != null && subscriptionEndsAt.isAfter(DateTime.now());
+          final subscriptionText = hasSubscription
+              ? 'Активна до ${subscriptionEndsAt.day.toString().padLeft(2, '0')}.${subscriptionEndsAt.month.toString().padLeft(2, '0')}.${subscriptionEndsAt.year}'
+              : 'Не активна';
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
@@ -42,6 +53,30 @@ class DriverCabinetScreen extends StatelessWidget {
                     avatar: Icon(verified ? Icons.verified : Icons.hourglass_top, size: 18, color: verified ? Colors.greenAccent : const Color(0xFFF3C622)),
                     label: Text(verified ? 'Профиль подтверждён' : 'Профиль на проверке'),
                     backgroundColor: const Color(0xFF25271F),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _AccessMetric(
+                          icon: Icons.local_offer_outlined,
+                          title: 'Бесплатные заявки',
+                          value: '$freeOrdersLeft',
+                          caption: freeOrdersLeft == 1 ? 'осталась' : 'осталось',
+                          color: freeOrdersLeft > 0 ? Colors.greenAccent : Colors.orangeAccent,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _AccessMetric(
+                          icon: Icons.workspace_premium_outlined,
+                          title: 'Подписка',
+                          value: hasSubscription ? 'Активна' : 'Нет',
+                          caption: hasSubscription ? subscriptionText.replaceFirst('Активна до ', 'до ') : 'оплата доступна позже',
+                          color: hasSubscription ? Colors.greenAccent : Colors.white54,
+                        ),
+                      ),
+                    ],
                   ),
                 ]),
               ),
@@ -64,6 +99,38 @@ class DriverCabinetScreen extends StatelessWidget {
           title: const Text('Как работать'),
           content: const Text('Будьте на линии, открывайте подходящие заявки на карте, связывайтесь с клиентом и берите заказ только после согласования.', style: TextStyle(color: Colors.white70, height: 1.5)),
           actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Понятно'))],
+        ),
+      );
+}
+
+class _AccessMetric extends StatelessWidget {
+  const _AccessMetric({required this.icon, required this.title, required this.value, required this.caption, required this.color});
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final String caption;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF22241D),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFF34372D)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 21),
+            const SizedBox(height: 7),
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+            const SizedBox(height: 3),
+            Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 17, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 2),
+            Text(caption, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+          ],
         ),
       );
 }
