@@ -179,12 +179,12 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
         lon: String(orderLon),
         status: 'active',
       },
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: 'orders',
-          sound: 'default',
-        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'order_alerts',
+            sound: 'order_alert',
+          },
       },
     },
   }));

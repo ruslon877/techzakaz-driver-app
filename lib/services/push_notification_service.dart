@@ -11,6 +11,7 @@ class PushNotificationService {
   PushNotificationService._();
 
   static final instance = PushNotificationService._();
+  static const _orderChannelId = 'order_alerts';
 
   final _messaging = FirebaseMessaging.instance;
   final _firestore = FirebaseFirestore.instance;
@@ -76,12 +77,15 @@ class PushNotificationService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     await androidImplementation?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'orders',
+      AndroidNotificationChannel(
+        _orderChannelId,
         'Новые заявки',
         description: 'Уведомления о новых заявках рядом с водителем',
         importance: Importance.max,
         playSound: true,
+        sound: RawResourceAndroidNotificationSound('order_alert'),
+        enableVibration: true,
+        vibrationPattern: Int64List.fromList([0, 350, 180, 550]),
       ),
     );
     _localNotificationsInitialized = true;
@@ -102,15 +106,17 @@ class PushNotificationService {
       id: message.hashCode,
       title: title,
       body: body,
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          'orders',
+          _orderChannelId,
           'Новые заявки',
           channelDescription: 'Уведомления о новых заявках рядом с водителем',
           importance: Importance.max,
           priority: Priority.high,
           playSound: true,
           enableVibration: true,
+          sound: RawResourceAndroidNotificationSound('order_alert'),
+          vibrationPattern: Int64List.fromList([0, 350, 180, 550]),
         ),
       ),
       payload: message.data['orderId']?.toString(),

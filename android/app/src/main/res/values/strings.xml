@@ -1,3 +1,3 @@
 <resources>
-    <string name="default_notification_channel_id">orders</string>
+    <string name="default_notification_channel_id">order_alerts</string>
 </resources>
