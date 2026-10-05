@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../services/push_notification_service.dart';
 
 class PendingVerificationScreen extends StatefulWidget {
   const PendingVerificationScreen({super.key, this.profile});
@@ -19,6 +22,7 @@ class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
   static const _yellow = Color(0xFFF3C622);
   static const _supportPhone = '+77073443446';
   bool _refreshing = false;
+  StreamSubscription<RemoteMessage>? _messageSubscription;
 
   String get _driverName => widget.profile?['name']?.toString().trim() ?? '';
   String get _equipmentType =>
@@ -26,6 +30,35 @@ class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
   bool get _isRejected =>
       widget.profile?['verificationStatus']?.toString().toLowerCase() ==
       'rejected';
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_registerVerificationPush());
+  }
+
+  Future<void> _registerVerificationPush() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      await PushNotificationService.instance.initializeForUser(user);
+      _messageSubscription =
+          PushNotificationService.instance.foregroundMessages.listen((message) {
+        if (!mounted || message.data['type'] != 'verification_status') return;
+        unawaited(
+          PushNotificationService.instance.showForegroundNotification(message),
+        );
+      });
+    } catch (error) {
+      debugPrint('Verification FCM registration failed: $error');
+    }
+  }
+
+  @override
+  void dispose() {
+    _messageSubscription?.cancel();
+    super.dispose();
+  }
 
   Future<void> _refreshStatus() async {
     final user = FirebaseAuth.instance.currentUser;
