@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -24,33 +26,52 @@ class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
 
   Future<void> _refreshStatus() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      _showStatusMessage('Сессия завершилась. Войдите в аккаунт снова.');
+      return;
+    }
     setState(() => _refreshing = true);
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('drivers')
           .doc(user.uid)
-          .get(const GetOptions(source: Source.server));
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
       if (!mounted) return;
       if (snapshot.data()?['isVerified'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Профиль подтверждён. Открываем радар...')),
-        );
+        _showStatusMessage('Профиль подтверждён. Открываем радар...');
         // AuthGate слушает этот документ и автоматически откроет RadarScreen.
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Проверка ещё не завершена. Мы сообщим, когда доступ будет открыт.')),
+        _showStatusMessage(
+          'Проверка ещё не завершена. Мы сообщим, когда доступ будет открыт.',
         );
       }
+    } on TimeoutException {
+      _showStatusMessage(
+        'Сервер долго не отвечает. Проверьте интернет и повторите попытку.',
+      );
+    } on FirebaseException catch (error) {
+      final message = switch (error.code) {
+        'permission-denied' =>
+          'Нет доступа к профилю. Выйдите и войдите в аккаунт снова.',
+        'unauthenticated' => 'Сессия завершилась. Войдите в аккаунт снова.',
+        'unavailable' || 'deadline-exceeded' || 'network-request-failed' =>
+          'Сервис временно недоступен. Проверьте интернет и повторите попытку.',
+        _ => 'Не удалось обновить статус. Повторите попытку позже.',
+      };
+      _showStatusMessage(message);
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось обновить статус. Проверьте интернет.')),
-        );
-      }
+      _showStatusMessage('Не удалось обновить статус. Проверьте интернет.');
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
+  }
+
+  void _showStatusMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _callSupport() async {
