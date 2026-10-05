@@ -511,6 +511,8 @@ class _RadarScreenState extends State<RadarScreen> {
         }
         transaction.update(orderRef, {
           'status': 'active',
+          'lastDriverId': driver.uid,
+          'declinedAt': FieldValue.serverTimestamp(),
           'driverId': FieldValue.delete(),
           'startedAt': FieldValue.delete(),
         });
@@ -797,11 +799,25 @@ class _RadarScreenState extends State<RadarScreen> {
     return null;
   }
 
+  DateTime? _dateFromValue(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value?.toString() ?? '');
+  }
+
   String _formatRemaining(Duration duration) {
     final totalSeconds = duration.inSeconds.clamp(0, 359999);
     final hours = totalSeconds ~/ 3600;
     final minutes = (totalSeconds % 3600) ~/ 60;
     final seconds = totalSeconds % 60;
+    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  String _formatElapsed(Duration duration) {
+    final safeSeconds = duration.inSeconds < 0 ? 0 : duration.inSeconds;
+    final hours = safeSeconds ~/ 3600;
+    final minutes = (safeSeconds % 3600) ~/ 60;
+    final seconds = safeSeconds % 60;
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
@@ -858,6 +874,58 @@ class _RadarScreenState extends State<RadarScreen> {
     }
   }
 
+  Future<void> _showActiveOrdersSheet() async {
+    try {
+      final snapshot = await _ordersQuery.get();
+      final orders = snapshot.docs
+          .where((document) => _isVisibleOrder(document.data()))
+          .toList();
+      if (!mounted) return;
+      showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: const Color(0xFF171914),
+        showDragHandle: true,
+        useSafeArea: true,
+        builder: (sheetContext) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(sheetContext).height * 0.65,
+            child: orders.isEmpty
+                ? const Center(
+                    child: Text('Подходящих активных заявок сейчас нет.', style: TextStyle(color: Colors.white60)),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
+                    itemCount: orders.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (_, index) {
+                      final document = orders[index];
+                      final data = document.data();
+                      return ListTile(
+                        tileColor: const Color(0xFF22241D),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        leading: const CircleAvatar(backgroundColor: Color(0xFFF3C622), foregroundColor: Colors.black, child: Icon(Icons.construction)),
+                        title: Text(data['type']?.toString() ?? 'Спецтехника', style: const TextStyle(fontWeight: FontWeight.w800)),
+                        subtitle: Text(data['address']?.toString() ?? 'Адрес не указан', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60)),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _showOrderSheet(document.id, data);
+                        },
+                      );
+                    },
+                  ),
+          ),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось загрузить активные заявки.')),
+        );
+      }
+    }
+  }
+
   Marker? _currentOrderMarker(Map<String, dynamic>? data) {
     if (data == null) return null;
     final lat = _asDouble(data['lat']);
@@ -901,6 +969,11 @@ class _RadarScreenState extends State<RadarScreen> {
     final orderId = order?['_orderId']?.toString();
     final pending = order?['status']?.toString() == 'in_progress';
     final remaining = cooldownUntil?.difference(DateTime.now());
+    final workStartedAt = _dateFromValue(order?['startedAt']) ??
+        _dateFromValue(order?['acceptedAt']);
+    final elapsed = workStartedAt == null
+        ? null
+        : DateTime.now().difference(workStartedAt);
     final orderMarker = _currentOrderMarker(order);
     return Scaffold(
       backgroundColor: const Color(0xFF0B0C0A),
@@ -1032,6 +1105,11 @@ class _RadarScreenState extends State<RadarScreen> {
                         ],
                       ),
                       const SizedBox(height: 10),
+                      if (elapsed != null)
+                        _CompactInfoRow(
+                          icon: Icons.timer_outlined,
+                          text: 'Время работы: ${_formatElapsed(elapsed)}',
+                        ),
                       _CompactInfoRow(
                         icon: Icons.location_on_outlined,
                         text: destination?.isNotEmpty == true
@@ -1417,10 +1495,14 @@ class _RadarScreenState extends State<RadarScreen> {
                             )
                             .length ??
                         0;
-                    return _StatusChip(
-                      icon: Icons.notifications_active_outlined,
-                      label: '$count заявок',
-                      color: const Color(0xFFF3C622),
+                    return InkWell(
+                      onTap: _showActiveOrdersSheet,
+                      borderRadius: BorderRadius.circular(20),
+                      child: _StatusChip(
+                        icon: Icons.notifications_active_outlined,
+                        label: '$count заявок',
+                        color: const Color(0xFFF3C622),
+                      ),
                     );
                   },
                 ),

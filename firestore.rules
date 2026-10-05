@@ -20,7 +20,7 @@ service cloud.firestore {
       allow update: if signedIn()
         && validOrderStatus()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'driverId', 'startedAt', 'acceptedAt'
+          'status', 'driverId', 'lastDriverId', 'declinedAt', 'startedAt', 'acceptedAt'
         ])
         && (
           resource.data.status == 'active'
