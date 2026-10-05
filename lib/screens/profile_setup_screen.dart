@@ -156,8 +156,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             'vehicleType': _equipmentType,
             'licensePlate': _plateController.text.trim().toUpperCase(),
             'vehiclePhotoUrl': photoUrl,
-            'isVerified': false,
             'verificationStatus': 'pending',
+            'freeOrdersLeft': 20,
+            'subscriptionEndsAt': null,
             'isOnline': false,
             'createdAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));

@@ -242,11 +242,11 @@ export const notifyDriverVerificationStatus = onDocumentUpdated('drivers/{driver
   const driverId = event.params.driverId;
   if (!before || !after) return;
 
-  const beforeStatus = normalizeVehicleType(before.verificationStatus);
-  const afterStatus = normalizeVehicleType(after.verificationStatus);
-  const becameVerified = before.isVerified !== true && after.isVerified === true;
-  const statusChanged = beforeStatus !== afterStatus && ['approved', 'rejected'].includes(afterStatus);
-  if (!becameVerified && !statusChanged) return;
+  const beforeStatus = String(before.verificationStatus ?? '').trim().toLowerCase();
+  const afterStatus = String(after.verificationStatus ?? '').trim().toLowerCase();
+  const approved = beforeStatus !== 'approved' && afterStatus === 'approved';
+  const rejected = beforeStatus !== 'rejected' && afterStatus === 'rejected';
+  if (!approved && !rejected) return;
 
   const token = typeof after.fcmToken === 'string' ? after.fcmToken : null;
   if (!token) {
@@ -254,11 +254,10 @@ export const notifyDriverVerificationStatus = onDocumentUpdated('drivers/{driver
     return;
   }
 
-  const approved = becameVerified || afterStatus === 'approved';
-  const title = approved ? 'Профиль одобрен' : 'Нужны уточнения по профилю';
+  const title = approved ? 'Профиль одобрен' : 'Профиль отклонен';
   const body = approved
     ? 'Регистрация прошла модерацию. Откройте приложение и начинайте принимать заказы.'
-    : 'Профиль не прошёл проверку. Свяжитесь со службой поддержки для исправления данных.';
+    : 'Профиль не прошёл модерацию. Свяжитесь со службой поддержки для исправления данных.';
 
   try {
     const result = await getMessaging().send({

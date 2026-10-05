@@ -74,7 +74,8 @@ class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
       if (!mounted) return;
-      if (snapshot.data()?['isVerified'] == true) {
+      if (snapshot.data()?['verificationStatus']?.toString().toLowerCase() ==
+          'approved') {
         _showStatusMessage('Профиль подтверждён. Открываем радар...');
         // AuthGate слушает этот документ и автоматически откроет RadarScreen.
       } else {

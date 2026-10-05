@@ -44,10 +44,11 @@ service cloud.firestore {
       allow read: if isDriver(uid);
       allow create: if isDriver(uid)
         && request.resource.data.driverId == uid
-        && request.resource.data.isVerified == false;
+        && request.resource.data.verificationStatus == 'pending'
+        && request.resource.data.freeOrdersLeft == 20
+        && request.resource.data.subscriptionEndsAt == null;
       allow update: if isDriver(uid)
         && request.resource.data.driverId == uid
-        && request.resource.data.isVerified == resource.data.isVerified
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'driverId',
           'name',
