@@ -469,21 +469,48 @@ class _RadarScreenState extends State<RadarScreen> {
     final orderRef = FirebaseFirestore.instance
         .collection('orders')
         .doc(orderId);
+    final driverRef = FirebaseFirestore.instance
+        .collection('drivers')
+        .doc(driver.uid);
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snapshot = await transaction.get(orderRef);
+        final driverSnapshot = await transaction.get(driverRef);
         final data = snapshot.data();
+        final driverData = driverSnapshot.data();
         if (data == null) throw StateError('Заявка не найдена.');
 
         final currentStatus = data['status']?.toString() ?? 'active';
         if (currentStatus != 'active') {
           throw StateError('Эту заявку уже взял другой водитель.');
         }
+
+        final freeOrdersLeft =
+            (driverData?['freeOrdersLeft'] as num?)?.toInt() ?? 0;
+        final subscriptionValue = driverData?['subscriptionEndsAt'];
+        final subscriptionEndsAt = subscriptionValue is Timestamp
+            ? subscriptionValue.toDate()
+            : subscriptionValue is DateTime
+                ? subscriptionValue
+                : DateTime.tryParse(subscriptionValue?.toString() ?? '');
+        final hasSubscription = subscriptionEndsAt != null &&
+            subscriptionEndsAt.isAfter(DateTime.now());
+        if (!hasSubscription && freeOrdersLeft <= 0) {
+          throw StateError(
+            'Бесплатные заявки закончились. Оформите подписку, чтобы брать заказы.',
+          );
+        }
+
         transaction.update(orderRef, {
           'status': 'in_progress',
           'driverId': driver.uid,
           'startedAt': FieldValue.serverTimestamp(),
         });
+        if (!hasSubscription) {
+          transaction.update(driverRef, {
+            'freeOrdersLeft': freeOrdersLeft - 1,
+          });
+        }
       });
 
       if (!mounted) return;
