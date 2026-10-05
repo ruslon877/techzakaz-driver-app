@@ -139,7 +139,7 @@ class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
                     style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 12),
-                  const Text(
+                  Text(
                     _isRejected
                         ? 'Мы не смогли подтвердить профиль по текущим данным. Свяжитесь со службой поддержки — специалист подскажет, что нужно исправить и как повторно пройти проверку.'
                         : 'Ваша регистрация принята. Мы проверяем данные водителя и спецтехники, чтобы подключить вас к базе сотрудничества.',
