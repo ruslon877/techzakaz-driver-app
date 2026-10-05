@@ -582,7 +582,37 @@ class _RadarScreenState extends State<RadarScreen> {
     return double.tryParse(value?.toString() ?? '');
   }
 
-  void _showOrderSheet(String orderId, Map<String, dynamic> data) {
+  Future<void> _showOrderSheet(String orderId, Map<String, dynamic> data) async {
+    final driver = FirebaseAuth.instance.currentUser;
+    if (driver == null) return;
+
+    Map<String, dynamic> profile;
+    try {
+      final profileSnapshot = await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(driver.uid)
+          .get();
+      profile = profileSnapshot.data() ?? <String, dynamic>{};
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось проверить доступ к заявке.')),
+        );
+      }
+      return;
+    }
+
+    final freeOrdersLeft = (profile['freeOrdersLeft'] as num?)?.toInt() ?? 0;
+    final subscriptionValue = profile['subscriptionEndsAt'];
+    final subscriptionEndsAt = subscriptionValue is Timestamp
+        ? subscriptionValue.toDate()
+        : subscriptionValue is DateTime
+            ? subscriptionValue
+            : DateTime.tryParse(subscriptionValue?.toString() ?? '');
+    final hasAccess = freeOrdersLeft > 0 ||
+        (subscriptionEndsAt != null &&
+            subscriptionEndsAt.isAfter(DateTime.now()));
+
     final type = data['type']?.toString() ?? 'Спецтехника';
     final phone = data['phone']?.toString() ?? 'не указан';
     final address = data['address']?.toString() ?? 'Адрес не указан';
@@ -591,7 +621,9 @@ class _RadarScreenState extends State<RadarScreen> {
     final lat = _asDouble(data['lat']);
     final lon = _asDouble(data['lon']);
     final comment = data['comment']?.toString() ?? '';
+    const maskedPhone = '+7 (***) ***-**-** 🔒';
 
+    if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF171914),
@@ -619,9 +651,9 @@ class _RadarScreenState extends State<RadarScreen> {
                         size: 12,
                       ),
                       const SizedBox(width: 8),
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          'Активная заявка',
+                          hasAccess ? 'Активная заявка' : 'Заявка доступна по подписке',
                           style: TextStyle(
                             color: Color(0xFFF3C622),
                             fontWeight: FontWeight.w700,
@@ -653,27 +685,29 @@ class _RadarScreenState extends State<RadarScreen> {
                           _InfoRow(
                             icon: Icons.phone_outlined,
                             label: 'Телефон клиента',
-                            value: phone,
+                            value: hasAccess ? phone : maskedPhone,
+                            valueColor: hasAccess ? null : Colors.white38,
                           ),
                           _InfoRow(
                             icon: Icons.location_on_outlined,
                             label: 'Адрес',
-                            value: address,
+                            value: hasAccess ? address : 'Точный адрес скрыт 🔒',
+                            valueColor: hasAccess ? null : Colors.white38,
                           ),
-                          if (destination != null && destination.isNotEmpty)
+                          if (hasAccess && destination != null && destination.isNotEmpty)
                             _InfoRow(
                               icon: Icons.flag_outlined,
                               label: 'Точка Б',
                               value: destination,
                             ),
-                          if (lat != null && lon != null)
+                          if (hasAccess && lat != null && lon != null)
                             _InfoRow(
                               icon: Icons.gps_fixed,
                               label: 'Координаты',
                               value:
                                   '${lat.toStringAsFixed(5)}, ${lon.toStringAsFixed(5)}',
                             ),
-                          if (comment.isNotEmpty)
+                          if (hasAccess && comment.isNotEmpty)
                             _InfoRow(
                               icon: Icons.notes_outlined,
                               label: 'Детали',
@@ -684,14 +718,36 @@ class _RadarScreenState extends State<RadarScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  if (status == 'active')
+                  if (!hasAccess)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Модуль оплаты находится в разработке')),
+                          );
+                        },
+                        icon: const Icon(Icons.lock_open_rounded),
+                        label: const Text('Открыть контакты (Оплатить подписку)'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFF3C622),
+                          foregroundColor: const Color(0xFF11120E),
+                        ),
+                      ),
+                    )
+                  else if (status == 'active')
                     SizedBox(
                       width: double.infinity,
                       height: 52,
                       child: FilledButton.icon(
                         onPressed: () => _takeOrder(orderId),
                         icon: const Icon(Icons.play_arrow_rounded),
-                        label: const Text('Взять в работу'),
+                        label: Text(
+                          freeOrdersLeft > 0
+                              ? 'Взять в работу (осталось бесплатных: $freeOrdersLeft)'
+                              : 'Взять в работу',
+                        ),
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFF3C622),
                           foregroundColor: const Color(0xFF11120E),
@@ -1488,11 +1544,13 @@ class _InfoRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.valueColor,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
@@ -1514,7 +1572,7 @@ class _InfoRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  style: const TextStyle(color: Colors.white, fontSize: 15),
+                  style: TextStyle(color: valueColor ?? Colors.white, fontSize: 15),
                 ),
               ],
             ),
