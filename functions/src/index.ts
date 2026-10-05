@@ -18,6 +18,19 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+function timestampMillis(value: unknown): number | null {
+  if (value && typeof value === 'object' && 'toMillis' in value && typeof value.toMillis === 'function') {
+    return value.toMillis();
+  }
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
 function normalizeVehicleType(value: unknown): string {
   return String(value ?? '').trim().toLocaleLowerCase('ru-RU');
 }
@@ -73,6 +86,7 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
   let driversWithoutLocation = 0;
   let driversWithoutToken = 0;
   let driversWithDifferentVehicleType = 0;
+  let driversOnCooldown = 0;
   let nearbyDrivers = 0;
 
   for (const driver of driversSnapshot.docs) {
@@ -92,6 +106,13 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     if (normalizeVehicleType(data.vehicleType) !== orderVehicleType) {
       driversWithDifferentVehicleType += 1;
       candidate.reason = 'vehicle_type_mismatch';
+      selectionDetails.push(candidate);
+      continue;
+    }
+    const cooldownUntilMillis = timestampMillis(data.cooldownUntil);
+    if (cooldownUntilMillis !== null && cooldownUntilMillis > Date.now()) {
+      driversOnCooldown += 1;
+      candidate.reason = 'active_order_cooldown';
       selectionDetails.push(candidate);
       continue;
     }
@@ -131,6 +152,7 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     driversWithoutLocation,
     driversWithoutToken,
     driversWithDifferentVehicleType,
+    driversOnCooldown,
     orderVehicleType,
     radiusKm: notificationRadiusKm,
   });

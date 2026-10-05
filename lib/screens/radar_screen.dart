@@ -62,6 +62,7 @@ class _RadarScreenState extends State<RadarScreen> {
   String? _notificationMessage;
   String? _vehicleType;
   bool _hasAccess = true;
+  bool _suppressOrderNotifications = false;
   bool _savingVehicleType = false;
   bool _isOnline = true;
   bool _savingOnline = false;
@@ -106,6 +107,9 @@ class _RadarScreenState extends State<RadarScreen> {
         message,
       ) {
         if (!mounted) return;
+        if (message.data['orderId'] != null && _suppressOrderNotifications) {
+          return;
+        }
         unawaited(_pushNotifications.showForegroundNotification(message));
       });
     } catch (error) {
@@ -1392,6 +1396,8 @@ class _RadarScreenState extends State<RadarScreen> {
           builder: (context, orderSnapshot) {
             final hasCooldown =
                 cooldownUntil != null && cooldownUntil.isAfter(DateTime.now());
+            _suppressOrderNotifications = hasCooldown ||
+                (orderSnapshot.hasData && orderSnapshot.data!.docs.isNotEmpty);
             if (orderSnapshot.hasData && orderSnapshot.data!.docs.isNotEmpty) {
               final order = orderSnapshot.data!.docs.first;
               return _buildActiveOrderMap(
