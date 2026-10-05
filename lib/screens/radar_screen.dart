@@ -1167,15 +1167,15 @@ class _RadarScreenState extends State<RadarScreen> {
           _foregroundServiceUid = null;
           unawaited(ForegroundLocationService.stop());
         }
-        final savedVehicleType = profile?['vehicleType']
+        // Тип техники уже выбирается во время регистрации профиля.
+        // Поддерживаем оба поля для совместимости со старыми профилями.
+        final savedVehicleType = (profile?['vehicleType'] ?? profile?['equipmentType'])
             ?.toString()
+            .trim()
             .toLowerCase();
-        if (_vehicleType != savedVehicleType &&
-            vehicleTypes.contains(savedVehicleType)) {
+        if (savedVehicleType != null && savedVehicleType.isNotEmpty &&
+            _vehicleType != savedVehicleType) {
           _vehicleType = savedVehicleType;
-        }
-        if (!vehicleTypes.contains(_vehicleType)) {
-          return _buildVehicleTypeScreen();
         }
         final cooldownUntil = _cooldownUntil(driverSnapshot.data?.data());
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(

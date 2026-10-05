@@ -1,8 +1,76 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-class PendingVerificationScreen extends StatelessWidget {
-  const PendingVerificationScreen({super.key});
+class PendingVerificationScreen extends StatefulWidget {
+  const PendingVerificationScreen({super.key, this.profile});
+
+  final Map<String, dynamic>? profile;
+
+  @override
+  State<PendingVerificationScreen> createState() =>
+      _PendingVerificationScreenState();
+}
+
+class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
+  static const _yellow = Color(0xFFF3C622);
+  static const _supportPhone = '+77073443446';
+  bool _refreshing = false;
+
+  String get _driverName => widget.profile?['name']?.toString().trim() ?? '';
+  String get _equipmentType =>
+      widget.profile?['equipmentType']?.toString().trim() ?? '';
+
+  Future<void> _refreshStatus() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    setState(() => _refreshing = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(user.uid)
+          .get(const GetOptions(source: Source.server));
+      if (!mounted) return;
+      if (snapshot.data()?['isVerified'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Профиль подтверждён. Открываем радар...')),
+        );
+        // AuthGate слушает этот документ и автоматически откроет RadarScreen.
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Проверка ещё не завершена. Мы сообщим, когда доступ будет открыт.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось обновить статус. Проверьте интернет.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _callSupport() async {
+    final uri = Uri(scheme: 'tel', path: _supportPhone);
+    if (!await launchUrl(uri)) _showContactError();
+  }
+
+  Future<void> _openWhatsApp() async {
+    final uri = Uri.parse('https://wa.me/${_supportPhone.substring(1)}');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      _showContactError();
+    }
+  }
+
+  void _showContactError() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Не удалось открыть приложение для связи.')),
+    );
+  }
 
   Future<void> _signOut() => FirebaseAuth.instance.signOut();
 
@@ -11,58 +79,155 @@ class PendingVerificationScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFF0B0C0A),
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
+          child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
+              constraints: const BoxConstraints(maxWidth: 480),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    width: 88,
-                    height: 88,
+                    padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF3C622).withValues(alpha: 0.14),
-                      shape: BoxShape.circle,
+                      color: _yellow.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: _yellow.withValues(alpha: 0.35)),
                     ),
-                    child: const Icon(
-                      Icons.hourglass_top_rounded,
-                      color: Color(0xFFF3C622),
-                      size: 44,
+                    child: const Row(
+                      children: [
+                        Icon(Icons.hourglass_top_rounded, color: _yellow, size: 38),
+                        SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            'Профиль на проверке',
+                            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 24),
+                  Text(
+                    _driverName.isEmpty ? 'Спасибо за регистрацию!' : 'Спасибо, $_driverName!',
+                    style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 12),
                   const Text(
-                    'Профиль на модерации',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
+                    'Ваша регистрация принята. Мы проверяем данные водителя и спецтехники, чтобы подключить вас к базе сотрудничества.',
+                    style: TextStyle(color: Colors.white70, height: 1.5, fontSize: 16),
                   ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Ваш профиль на модерации. Мы проверяем данные автомобиля. Доступ к заказам временно закрыт',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white60,
-                      height: 1.5,
-                      fontSize: 16,
+                  const SizedBox(height: 18),
+                  _InfoCard(
+                    icon: Icons.schedule_rounded,
+                    title: 'Ожидаемый срок',
+                    text: 'Обычно проверка занимает до 24 часов. После подтверждения доступ к заказам откроется автоматически.',
+                  ),
+                  if (_equipmentType.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _InfoCard(
+                      icon: Icons.local_shipping_outlined,
+                      title: 'Заявленная техника',
+                      text: _equipmentType,
                     ),
-                  ),
-                  const SizedBox(height: 30),
+                  ],
+                  const SizedBox(height: 24),
                   SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: OutlinedButton.icon(
-                      onPressed: _signOut,
-                      icon: const Icon(Icons.logout),
-                      label: const Text('Выйти из аккаунта'),
+                    height: 54,
+                    child: ElevatedButton.icon(
+                      onPressed: _refreshing ? null : _refreshStatus,
+                      icon: _refreshing
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                            )
+                          : const Icon(Icons.refresh_rounded),
+                      label: Text(_refreshing ? 'Проверяем статус...' : 'Обновить статус'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _yellow,
+                        foregroundColor: Colors.black,
+                        disabledBackgroundColor: _yellow.withValues(alpha: 0.5),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _callSupport,
+                    icon: const Icon(Icons.phone_outlined),
+                    label: const Text('Позвонить в службу поддержки'),
+                    style: _outlineStyle(),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: _openWhatsApp,
+                    icon: const Icon(Icons.chat_outlined),
+                    label: const Text('Написать в WhatsApp'),
+                    style: _outlineStyle(),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Служба поддержки: +7 707 344 3446',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white54, fontSize: 13),
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton.icon(
+                    onPressed: _signOut,
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Выйти из аккаунта'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.white60),
                   ),
                 ],
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  ButtonStyle _outlineStyle() => OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        side: const BorderSide(color: Color(0xFF3B3D34)),
+        minimumSize: const Size.fromHeight(52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      );
+}
+
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({required this.icon, required this.title, required this.text});
+
+  final IconData icon;
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: const Color(0xFF171914),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF292B25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: const Color(0xFFF3C622), size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(text, style: const TextStyle(color: Colors.white60, height: 1.35)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
