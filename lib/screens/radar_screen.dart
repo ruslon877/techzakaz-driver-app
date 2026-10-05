@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/foreground_location_service.dart';
 import '../services/push_notification_service.dart';
+import '../widgets/driver_drawer.dart';
 
 const vehicleTypes = <String>[
   'эвакуатор',
@@ -716,6 +717,23 @@ class _RadarScreenState extends State<RadarScreen> {
 
   Future<void> _signOut() => FirebaseAuth.instance.signOut();
 
+  void _showInstructions() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF171914),
+        title: const Text('Как брать заказы'),
+        content: const Text(
+          'Включите «На линии», откройте подходящую заявку на карте, свяжитесь с клиентом и нажмите «Взять в работу». После согласования нажмите «Выехал на заказ».',
+          style: TextStyle(color: Colors.white70, height: 1.5),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Понятно')),
+        ],
+      ),
+    );
+  }
+
   DateTime? _cooldownUntil(Map<String, dynamic>? data) {
     final value = data?['cooldownUntil'];
     if (value is Timestamp) return value.toDate();
@@ -830,28 +848,25 @@ class _RadarScreenState extends State<RadarScreen> {
     final orderMarker = _currentOrderMarker(order);
     return Scaffold(
       backgroundColor: const Color(0xFF0B0C0A),
+      drawer: DriverDrawer(onInstructions: _showInstructions),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         backgroundColor: const Color(0xFF0B0C0A),
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: const Row(
           children: [
-            Text('ТехЗаказ', style: TextStyle(fontWeight: FontWeight.w800)),
-            Text(
-              'В РЕЙСЕ',
-              style: TextStyle(
-                color: Color(0xFFF3C622),
-                fontSize: 10,
-                letterSpacing: 1.5,
-              ),
+            Icon(Icons.construction, color: Color(0xFFF3C622)),
+            SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('ТехЗаказ', style: TextStyle(fontWeight: FontWeight.w800)),
+                Text('В РЕЙСЕ', style: TextStyle(color: Color(0xFFF3C622), fontSize: 10, letterSpacing: 1.5)),
+              ],
             ),
           ],
         ),
         actions: [
-          IconButton(
-            onPressed: _signOut,
-            tooltip: 'Выйти',
-            icon: const Icon(Icons.logout_outlined),
-          ),
+          Builder(builder: (context) => IconButton(onPressed: () => Scaffold.of(context).openDrawer(), tooltip: 'Меню', icon: const Icon(Icons.menu_rounded))),
         ],
       ),
       body: Stack(
@@ -1203,28 +1218,25 @@ class _RadarScreenState extends State<RadarScreen> {
   Widget _buildRadar({required bool isOnline}) {
     return Scaffold(
       backgroundColor: const Color(0xFF0B0C0A),
+      drawer: DriverDrawer(onInstructions: _showInstructions),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         backgroundColor: const Color(0xFF0B0C0A),
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: const Row(
           children: [
-            Text('ТехЗаказ', style: TextStyle(fontWeight: FontWeight.w800)),
-            Text(
-              'РАДАР ЗАЯВОК',
-              style: TextStyle(
-                color: Color(0xFFF3C622),
-                fontSize: 10,
-                letterSpacing: 1.5,
-              ),
+            Icon(Icons.construction, color: Color(0xFFF3C622)),
+            SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('ТехЗаказ', style: TextStyle(fontWeight: FontWeight.w800)),
+                Text('РАДАР ЗАЯВОК', style: TextStyle(color: Color(0xFFF3C622), fontSize: 10, letterSpacing: 1.5)),
+              ],
             ),
           ],
         ),
         actions: [
-          IconButton(
-            onPressed: _signOut,
-            tooltip: 'Выйти',
-            icon: const Icon(Icons.logout_outlined),
-          ),
+          Builder(builder: (context) => IconButton(onPressed: () => Scaffold.of(context).openDrawer(), tooltip: 'Меню', icon: const Icon(Icons.menu_rounded))),
         ],
       ),
       body: Stack(

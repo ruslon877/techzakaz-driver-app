@@ -23,6 +23,9 @@ class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
   String get _driverName => widget.profile?['name']?.toString().trim() ?? '';
   String get _equipmentType =>
       widget.profile?['equipmentType']?.toString().trim() ?? '';
+  bool get _isRejected =>
+      widget.profile?['verificationStatus']?.toString().toLowerCase() ==
+      'rejected';
 
   Future<void> _refreshStatus() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -115,13 +118,13 @@ class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(color: _yellow.withValues(alpha: 0.35)),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
                         Icon(Icons.hourglass_top_rounded, color: _yellow, size: 38),
                         SizedBox(width: 14),
                         Expanded(
                           child: Text(
-                            'Профиль на проверке',
+                            _isRejected ? 'Профиль требует уточнения' : 'Профиль на проверке',
                             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                           ),
                         ),
@@ -130,19 +133,25 @@ class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    _driverName.isEmpty ? 'Спасибо за регистрацию!' : 'Спасибо, $_driverName!',
+                    _isRejected
+                        ? 'Нужна дополнительная информация'
+                        : (_driverName.isEmpty ? 'Спасибо за регистрацию!' : 'Спасибо, $_driverName!'),
                     style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 12),
                   const Text(
-                    'Ваша регистрация принята. Мы проверяем данные водителя и спецтехники, чтобы подключить вас к базе сотрудничества.',
+                    _isRejected
+                        ? 'Мы не смогли подтвердить профиль по текущим данным. Свяжитесь со службой поддержки — специалист подскажет, что нужно исправить и как повторно пройти проверку.'
+                        : 'Ваша регистрация принята. Мы проверяем данные водителя и спецтехники, чтобы подключить вас к базе сотрудничества.',
                     style: TextStyle(color: Colors.white70, height: 1.5, fontSize: 16),
                   ),
                   const SizedBox(height: 18),
                   _InfoCard(
                     icon: Icons.schedule_rounded,
-                    title: 'Ожидаемый срок',
-                    text: 'Обычно проверка занимает до 24 часов. После подтверждения доступ к заказам откроется автоматически.',
+                    title: _isRejected ? 'Что делать дальше' : 'Ожидаемый срок',
+                    text: _isRejected
+                        ? 'Позвоните или напишите в WhatsApp. Не создавайте новый профиль — поддержка поможет обновить данные.'
+                        : 'Обычно проверка занимает до 24 часов. После подтверждения доступ к заказам откроется автоматически.',
                   ),
                   if (_equipmentType.isNotEmpty) ...[
                     const SizedBox(height: 10),

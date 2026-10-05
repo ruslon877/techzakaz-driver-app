@@ -1,7 +1,7 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging, MulticastMessage } from 'firebase-admin/messaging';
-import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions';
 
 if (getApps().length === 0) initializeApp();
@@ -234,4 +234,52 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
   };
   logger.info('FCM notification flow completed', dispatchSummary);
   await db.collection('_notificationDispatches').doc(orderId).set(dispatchSummary);
+});
+
+export const notifyDriverVerificationStatus = onDocumentUpdated('drivers/{driverId}', async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  const driverId = event.params.driverId;
+  if (!before || !after) return;
+
+  const beforeStatus = normalizeVehicleType(before.verificationStatus);
+  const afterStatus = normalizeVehicleType(after.verificationStatus);
+  const becameVerified = before.isVerified !== true && after.isVerified === true;
+  const statusChanged = beforeStatus !== afterStatus && ['approved', 'rejected'].includes(afterStatus);
+  if (!becameVerified && !statusChanged) return;
+
+  const token = typeof after.fcmToken === 'string' ? after.fcmToken : null;
+  if (!token) {
+    logger.warn('Verification notification skipped: driver has no FCM token', { driverId, status: afterStatus });
+    return;
+  }
+
+  const approved = becameVerified || afterStatus === 'approved';
+  const title = approved ? 'Профиль одобрен' : 'Нужны уточнения по профилю';
+  const body = approved
+    ? 'Регистрация прошла модерацию. Откройте приложение и начинайте принимать заказы.'
+    : 'Профиль не прошёл проверку. Свяжитесь со службой поддержки для исправления данных.';
+
+  try {
+    const result = await getMessaging().send({
+      token,
+      notification: { title, body },
+      data: {
+        type: 'verification_status',
+        status: approved ? 'approved' : 'rejected',
+        driverId,
+      },
+      android: {
+        priority: 'high',
+        notification: { channelId: 'order_alerts', sound: 'default' },
+      },
+    });
+    logger.info('Verification notification sent', { driverId, status: approved ? 'approved' : 'rejected', messageId: result });
+  } catch (error) {
+    logger.error('Verification notification failed', {
+      driverId,
+      status: approved ? 'approved' : 'rejected',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 });

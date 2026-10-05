@@ -40,7 +40,11 @@ class AuthGate extends StatelessWidget {
               return ProfileSetupScreen(user: user);
             }
             final profileData = profile.data();
-            return profileData?['isVerified'] == true
+            final verificationStatus =
+                profileData?['verificationStatus']?.toString().toLowerCase();
+            final isApproved = profileData?['isVerified'] == true ||
+                verificationStatus == 'approved';
+            return isApproved
                 ? const RadarScreen()
                 : PendingVerificationScreen(profile: profileData);
           },
