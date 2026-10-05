@@ -4,11 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/foreground_location_service.dart';
 import '../services/push_notification_service.dart';
 
 const vehicleTypes = <String>[
@@ -62,6 +64,8 @@ class _RadarScreenState extends State<RadarScreen> {
   bool _isOnline = true;
   bool _savingOnline = false;
   String? _onlineInitializedUid;
+  String? _foregroundServiceUid;
+  bool _startingForegroundService = false;
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<RemoteMessage>? _messageSubscription;
   Timer? _cooldownTimer;
@@ -69,11 +73,20 @@ class _RadarScreenState extends State<RadarScreen> {
   @override
   void initState() {
     super.initState();
+    FlutterForegroundTask.addTaskDataCallback(_onForegroundLocationData);
     _loadDriverLocation();
     _initializePushNotifications();
     _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
+  }
+
+  void _onForegroundLocationData(Object data) {
+    if (!mounted || data is! Map) return;
+    final lat = double.tryParse(data['lat']?.toString() ?? '');
+    final lon = double.tryParse(data['lon']?.toString() ?? '');
+    if (lat == null || lon == null) return;
+    setState(() => _driverLocation = LatLng(lat, lon));
   }
 
   Future<void> _initializePushNotifications() async {
@@ -221,9 +234,13 @@ class _RadarScreenState extends State<RadarScreen> {
   void dispose() {
     _positionSubscription?.cancel();
     _messageSubscription?.cancel();
+    FlutterForegroundTask.removeTaskDataCallback(_onForegroundLocationData);
     _cooldownTimer?.cancel();
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null) unawaited(_pushNotifications.markOffline(user));
+    if (user != null) {
+      unawaited(ForegroundLocationService.stop());
+      unawaited(_pushNotifications.markOffline(user));
+    }
     super.dispose();
   }
 
@@ -264,26 +281,100 @@ class _RadarScreenState extends State<RadarScreen> {
     );
   }
 
+  Future<void> _ensureForegroundServiceStarted(User user) async {
+    if (_foregroundServiceUid == user.uid || _startingForegroundService) return;
+    _startingForegroundService = true;
+    final failure = await ForegroundLocationService.start(user.uid);
+    if (!mounted) return;
+    _startingForegroundService = false;
+    if (failure != null) {
+      await _showForegroundServiceFailure(failure);
+      await _writeOnlineStatus(false, user);
+      return;
+    }
+    setState(() => _foregroundServiceUid = user.uid);
+  }
+
+  Future<void> _showForegroundServiceFailure(
+    ForegroundLocationStartFailure failure,
+  ) async {
+    if (!mounted) return;
+    final needsBatterySettings =
+        failure == ForegroundLocationStartFailure.batteryOptimization;
+    final needsAppSettings = !needsBatterySettings;
+    final message = switch (failure) {
+      ForegroundLocationStartFailure.backgroundLocationPermission => 'Чтобы получать заявки при выключенном экране, разрешите для ТехЗаказ доступ к геопозиции «Всегда» в настройках приложения.',
+      ForegroundLocationStartFailure.locationPermission => 'Без доступа к геопозиции приложение не сможет находить заявки рядом с вами. Включите GPS и разрешение для ТехЗаказ.',
+      ForegroundLocationStartFailure.batteryOptimization => 'Чтобы координаты обновлялись при выключенном экране, разрешите ТехЗаказ работать без ограничений батареи.',
+      ForegroundLocationStartFailure.notificationPermission => 'Постоянное уведомление нужно Android для фоновой геолокации. Разрешите уведомления для ТехЗаказ.',
+      ForegroundLocationStartFailure.serviceStart => 'Не удалось запустить фоновое отслеживание. Проверьте разрешения и попробуйте ещё раз.',
+    };
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Нужен доступ для режима «На линии»'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Позже'),
+          ),
+          if (needsAppSettings || needsBatterySettings)
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                if (needsBatterySettings) {
+                  unawaited(
+                    FlutterForegroundTask.openIgnoreBatteryOptimizationSettings(),
+                  );
+                } else {
+                  unawaited(Geolocator.openAppSettings());
+                }
+              },
+              child: const Text('Открыть настройки'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _writeOnlineStatus(bool value, User user) async {
+    await FirebaseFirestore.instance.collection('drivers').doc(user.uid).set({
+      'driverId': user.uid,
+      'isOnline': value,
+      'onlineUpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   Future<void> _setOnlineStatus(bool value) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _savingOnline) return;
-    final previous = _isOnline;
     setState(() {
-      _isOnline = value;
       _savingOnline = true;
     });
     try {
-      await FirebaseFirestore.instance.collection('drivers').doc(user.uid).set({
-        'driverId': user.uid,
-        'isOnline': value,
-        'onlineUpdatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      if (value) {
+        final failure = await ForegroundLocationService.start(user.uid);
+        if (failure != null) {
+          await _showForegroundServiceFailure(failure);
+          return;
+        }
+        _foregroundServiceUid = user.uid;
+      } else {
+        final stopped = await ForegroundLocationService.stop();
+        if (!stopped) {
+          throw StateError('Не удалось остановить фоновую геолокацию');
+        }
+        _foregroundServiceUid = null;
+      }
+      await _writeOnlineStatus(value, user);
+      if (mounted) setState(() => _isOnline = value);
     } catch (error) {
-      if (!mounted) return;
-      setState(() => _isOnline = previous);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не удалось изменить статус: $error')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось изменить статус: $error')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _savingOnline = false);
     }
@@ -1067,6 +1158,14 @@ class _RadarScreenState extends State<RadarScreen> {
         final savedOnline = profile?['isOnline'];
         if (savedOnline is bool && savedOnline != _isOnline && !_savingOnline) {
           _isOnline = savedOnline;
+        }
+        if (savedOnline == true) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) unawaited(_ensureForegroundServiceStarted(user));
+          });
+        } else if (savedOnline == false && _foregroundServiceUid == user.uid) {
+          _foregroundServiceUid = null;
+          unawaited(ForegroundLocationService.stop());
         }
         final savedVehicleType = profile?['vehicleType']
             ?.toString()

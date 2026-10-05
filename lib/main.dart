@@ -1,12 +1,16 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'auth_gate.dart';
+import 'services/foreground_location_service.dart';
 import 'services/push_notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterForegroundTask.initCommunicationPort();
+  ForegroundLocationService.initialize();
 
   Object? firebaseInitError;
   try {
@@ -63,12 +67,20 @@ class FirebaseInitErrorScreen extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.cloud_off_outlined, color: Color(0xFFFF7D6E), size: 64),
+                const Icon(
+                  Icons.cloud_off_outlined,
+                  color: Color(0xFFFF7D6E),
+                  size: 64,
+                ),
                 const SizedBox(height: 24),
                 const Text(
                   'Не удалось запустить Firebase',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 const Text(
