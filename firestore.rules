@@ -6,8 +6,8 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isDriver() {
-      return signedIn();
+    function isDriver(uid) {
+      return signedIn() && request.auth.uid == uid;
     }
 
     function validOrderStatus() {
@@ -15,61 +15,57 @@ service cloud.firestore {
     }
 
     match /orders/{orderId} {
-      // Customer web app may create a new active order without authentication.
       allow create: if request.resource.data.status == 'active';
-
-      // Authenticated drivers can listen for available orders.
-      allow read: if isDriver();
-
-      // Only the lifecycle fields may change from the driver app.
-      allow update: if isDriver()
+      allow read: if signedIn();
+      allow update: if signedIn()
         && validOrderStatus()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status',
-          'driverId',
-          'startedAt',
-          'acceptedAt'
+          'status', 'driverId', 'startedAt', 'acceptedAt'
         ])
         && (
-          // Claim an available order for the current driver.
-          (
-            resource.data.status == 'active'
-            && request.resource.data.status == 'in_progress'
-            && request.resource.data.driverId == request.auth.uid
-          )
-          // Release a claimed order back to the radar.
-          || (
-            resource.data.status == 'in_progress'
-            && resource.data.driverId == request.auth.uid
-            && request.resource.data.status == 'active'
-            && !request.resource.data.keys().hasAny(['driverId'])
-          )
-          // Confirm departure for the current driver's order.
-          || (
-            resource.data.status == 'in_progress'
-            && resource.data.driverId == request.auth.uid
-            && request.resource.data.status == 'accepted'
-            && request.resource.data.driverId == request.auth.uid
-          )
-          // A driver may cancel or complete only an order assigned to them.
-          || (
-            resource.data.driverId == request.auth.uid
-            && request.resource.data.status == 'cancelled'
-          )
+          resource.data.status == 'active'
+          && request.resource.data.status == 'in_progress'
+          && request.resource.data.driverId == request.auth.uid
+          || resource.data.status == 'in_progress'
+          && resource.data.driverId == request.auth.uid
+          && request.resource.data.status == 'active'
+          && !request.resource.data.keys().hasAny(['driverId'])
+          || resource.data.status == 'in_progress'
+          && resource.data.driverId == request.auth.uid
+          && request.resource.data.status == 'accepted'
+          && request.resource.data.driverId == request.auth.uid
+          || resource.data.driverId == request.auth.uid
+          && request.resource.data.status == 'cancelled'
         );
-
       allow delete: if false;
     }
 
     match /drivers/{uid} {
-      // A driver may access only their own profile/token/location document.
-      allow read: if signedIn() && request.auth.uid == uid;
-      allow create: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.driverId == uid;
-      allow update: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.driverId == uid;
+      allow read: if isDriver(uid);
+      allow create: if isDriver(uid)
+        && request.resource.data.driverId == uid
+        && request.resource.data.isVerified == false;
+      allow update: if isDriver(uid)
+        && request.resource.data.driverId == uid
+        && request.resource.data.isVerified == resource.data.isVerified
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'driverId',
+          'name',
+          'phone',
+          'equipmentCategory',
+          'equipmentType',
+          'vehicleType',
+          'licensePlate',
+          'vehiclePhotoUrl',
+          'isOnline',
+          'onlineUpdatedAt',
+          'fcmToken',
+          'tokenUpdatedAt',
+          'lat',
+          'lon',
+          'locationUpdatedAt',
+          'cooldownUntil'
+        ]);
       allow delete: if false;
     }
   }

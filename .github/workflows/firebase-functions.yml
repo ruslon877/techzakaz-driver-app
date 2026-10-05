@@ -52,5 +52,8 @@ jobs:
       - name: Deploy Firestore Rules
         run: npx firebase-tools deploy --only firestore:rules --project techzakaz-e273a --non-interactive
 
+      - name: Deploy Storage Rules
+        run: npx firebase-tools deploy --only storage --project techzakaz-e273a --non-interactive
+
       - name: Deploy Firebase Functions
         run: npx firebase-tools deploy --only functions --project techzakaz-e273a --non-interactive --force
