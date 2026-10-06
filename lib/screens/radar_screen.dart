@@ -63,6 +63,7 @@ class _RadarScreenState extends State<RadarScreen> {
   String? _vehicleType;
   bool _hasAccess = true;
   bool _suppressOrderNotifications = false;
+  bool _completingExpiredOrder = false;
   bool _savingVehicleType = false;
   bool _isOnline = true;
   bool _savingOnline = false;
@@ -499,6 +500,18 @@ class _RadarScreenState extends State<RadarScreen> {
                 : DateTime.tryParse(subscriptionValue?.toString() ?? '');
         final hasSubscription = subscriptionEndsAt != null &&
             subscriptionEndsAt.isAfter(DateTime.now());
+        final almatyNow = DateTime.now().toUtc().add(const Duration(hours: 5));
+        final dailyOrderDate =
+            '${almatyNow.year.toString().padLeft(4, '0')}-${almatyNow.month.toString().padLeft(2, '0')}-${almatyNow.day.toString().padLeft(2, '0')}';
+        final storedDailyDate = driverData?['dailyOrderDate']?.toString();
+        final dailyOrdersCount = storedDailyDate == dailyOrderDate
+            ? (driverData?['dailyOrdersCount'] as num?)?.toInt() ?? 0
+            : 0;
+        if (dailyOrdersCount >= 5) {
+          throw StateError(
+            'Лимит на сегодня исчерпан. Можно взять не более 5 заказов в сутки.',
+          );
+        }
         if (!hasSubscription && freeOrdersLeft <= 0) {
           throw StateError(
             'Бесплатные заявки закончились. Оформите подписку, чтобы брать заказы.',
@@ -510,11 +523,12 @@ class _RadarScreenState extends State<RadarScreen> {
           'driverId': driver.uid,
           'startedAt': FieldValue.serverTimestamp(),
         });
-        if (!hasSubscription) {
-          transaction.update(driverRef, {
-            'freeOrdersLeft': freeOrdersLeft - 1,
-          });
-        }
+        final driverUpdate = <String, dynamic>{
+          'dailyOrderDate': dailyOrderDate,
+          'dailyOrdersCount': dailyOrdersCount + 1,
+        };
+        if (!hasSubscription) driverUpdate['freeOrdersLeft'] = freeOrdersLeft - 1;
+        transaction.update(driverRef, driverUpdate);
       });
 
       if (!mounted) return;
@@ -624,6 +638,40 @@ class _RadarScreenState extends State<RadarScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _completeExpiredOrder(String orderId) async {
+    final driver = FirebaseAuth.instance.currentUser;
+    if (driver == null) return;
+    final orderRef = FirebaseFirestore.instance.collection('orders').doc(orderId);
+    final driverRef = FirebaseFirestore.instance.collection('drivers').doc(driver.uid);
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final orderSnapshot = await transaction.get(orderRef);
+        final driverSnapshot = await transaction.get(driverRef);
+        final order = orderSnapshot.data();
+        final profile = driverSnapshot.data();
+        if (order == null ||
+            order['status']?.toString() != 'accepted' ||
+            order['driverId']?.toString() != driver.uid) {
+          return;
+        }
+        final cooldownValue = profile?['cooldownUntil'];
+        final cooldownUntil = cooldownValue is Timestamp
+            ? cooldownValue.toDate()
+            : cooldownValue is DateTime
+                ? cooldownValue
+                : DateTime.tryParse(cooldownValue?.toString() ?? '');
+        if (cooldownUntil != null && cooldownUntil.isAfter(DateTime.now())) return;
+        transaction.update(orderRef, {
+          'status': 'completed',
+          'completedAt': FieldValue.serverTimestamp(),
+        });
+        transaction.update(driverRef, {'cooldownUntil': null});
+      });
+    } catch (error) {
+      debugPrint('Could not complete expired order: $error');
     }
   }
 
@@ -1400,6 +1448,16 @@ class _RadarScreenState extends State<RadarScreen> {
                 (orderSnapshot.hasData && orderSnapshot.data!.docs.isNotEmpty);
             if (orderSnapshot.hasData && orderSnapshot.data!.docs.isNotEmpty) {
               final order = orderSnapshot.data!.docs.first;
+              if (!_completingExpiredOrder &&
+                  !hasCooldown &&
+                  cooldownUntil != null &&
+                  order.data()['status']?.toString() == 'accepted') {
+                _completingExpiredOrder = true;
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  await _completeExpiredOrder(order.id);
+                  if (mounted) _completingExpiredOrder = false;
+                });
+              }
               return _buildActiveOrderMap(
                 order: {...order.data(), '_orderId': order.id},
                 cooldownUntil: hasCooldown ? cooldownUntil : null,

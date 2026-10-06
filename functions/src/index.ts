@@ -2,6 +2,7 @@ import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging, MulticastMessage } from 'firebase-admin/messaging';
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { logger } from 'firebase-functions';
 
 if (getApps().length === 0) initializeApp();
@@ -184,29 +185,25 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
   }
 
   const type = String(order.type ?? 'Спецтехника');
-  const address = String(order.address ?? 'Новая заявка');
   const batches = chunks(uniqueTokens, 500).map((tokenChunk) => ({
     tokens: tokenChunk,
     message: {
       tokens: tokenChunk,
       notification: {
-        title: 'Новая заявка рядом',
-        body: `${type} · ${address}`,
+        title: 'Новый заказ рядом',
+        body: 'Проверьте Радар заявок',
       },
       data: {
         orderId,
         type,
-        address,
-        lat: String(orderLat),
-        lon: String(orderLon),
         status: 'active',
       },
-        android: {
-          priority: 'high',
-          notification: {
-            channelId: 'order_alerts',
-            sound: 'order_alert',
-          },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'order_alerts',
+          sound: 'order_alert',
+        },
       },
     },
   }));
@@ -256,6 +253,41 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
   };
   logger.info('FCM notification flow completed', dispatchSummary);
   await db.collection('_notificationDispatches').doc(orderId).set(dispatchSummary);
+});
+
+export const completeExpiredDriverOrders = onSchedule({
+  schedule: 'every 5 minutes',
+  timeZone: 'Asia/Almaty',
+}, async () => {
+  const now = new Date();
+  const expiredDrivers = await db.collection('drivers')
+    .where('cooldownUntil', '<=', now)
+    .get();
+  let completedOrders = 0;
+
+  for (const driver of expiredDrivers.docs) {
+    const orders = await db.collection('orders')
+      .where('driverId', '==', driver.id)
+      .where('status', '==', 'accepted')
+      .get();
+    if (orders.empty) continue;
+
+    const batch = db.batch();
+    for (const order of orders.docs) {
+      batch.update(order.ref, {
+        status: 'completed',
+        completedAt: now,
+      });
+      completedOrders += 1;
+    }
+    batch.update(driver.ref, { cooldownUntil: null });
+    await batch.commit();
+  }
+
+  logger.info('Expired driver orders completed', {
+    expiredDrivers: expiredDrivers.size,
+    completedOrders,
+  });
 });
 
 export const notifyDriverVerificationStatus = onDocumentUpdated('drivers/{driverId}', async (event) => {

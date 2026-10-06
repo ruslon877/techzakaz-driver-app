@@ -11,7 +11,7 @@ service cloud.firestore {
     }
 
     function validOrderStatus() {
-      return request.resource.data.status in ['active', 'in_progress', 'accepted', 'cancelled'];
+      return request.resource.data.status in ['active', 'in_progress', 'accepted', 'completed', 'cancelled'];
     }
 
     function validFreeOrdersChange() {
@@ -20,13 +20,20 @@ service cloud.firestore {
         && resource.data.freeOrdersLeft > 0;
     }
 
+    function validDailyLimitChange() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['dailyOrdersCount', 'dailyOrderDate'])
+        || request.resource.data.dailyOrdersCount >= 0
+        && request.resource.data.dailyOrdersCount <= 5
+        && request.resource.data.dailyOrderDate is string;
+    }
+
     match /orders/{orderId} {
       allow create: if request.resource.data.status == 'active';
       allow read: if signedIn();
       allow update: if signedIn()
         && validOrderStatus()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'driverId', 'lastDriverId', 'declinedAt', 'startedAt', 'acceptedAt'
+          'status', 'driverId', 'lastDriverId', 'declinedAt', 'startedAt', 'acceptedAt', 'completedAt'
         ])
         && (
           resource.data.status == 'active'
@@ -39,6 +46,10 @@ service cloud.firestore {
           || resource.data.status == 'in_progress'
           && resource.data.driverId == request.auth.uid
           && request.resource.data.status == 'accepted'
+          && request.resource.data.driverId == request.auth.uid
+          || resource.data.status == 'accepted'
+          && resource.data.driverId == request.auth.uid
+          && request.resource.data.status == 'completed'
           && request.resource.data.driverId == request.auth.uid
           || resource.data.driverId == request.auth.uid
           && request.resource.data.status == 'cancelled'
@@ -65,6 +76,8 @@ service cloud.firestore {
           'licensePlate',
           'vehiclePhotoUrl',
           'freeOrdersLeft',
+          'dailyOrdersCount',
+          'dailyOrderDate',
           'isOnline',
           'onlineUpdatedAt',
           'fcmToken',
@@ -74,7 +87,8 @@ service cloud.firestore {
           'locationUpdatedAt',
           'cooldownUntil'
         ])
-        && validFreeOrdersChange();
+        && validFreeOrdersChange()
+        && validDailyLimitChange();
       allow delete: if false;
     }
   }
