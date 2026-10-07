@@ -7,6 +7,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../config/service_cities.dart';
+
 const equipmentCatalog = <String, List<String>>{
   'Подъемная техника': [
     'Автокран',
@@ -81,10 +83,6 @@ const equipmentCatalog = <String, List<String>>{
   ],
 };
 
-const serviceCities = <String, String>{
-  'almaty': 'Алматы',
-};
-
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({super.key, required this.user, this.profile});
 
@@ -121,7 +119,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     _category = profile?['equipmentCategory']?.toString();
     _equipmentType = profile?['equipmentType']?.toString();
     final savedCityId = profile?['cityId']?.toString();
-    if (savedCityId != null && serviceCities.containsKey(savedCityId)) {
+    if (savedCityId != null && serviceCitiesById.containsKey(savedCityId)) {
       _cityId = savedCityId;
     }
     _existingPhotoUrl = profile?['vehiclePhotoUrl']?.toString();
@@ -234,7 +232,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         'equipmentType': _equipmentType,
         'vehicleType': _equipmentType,
         'cityId': _cityId,
-        'cityName': serviceCities[_cityId],
+        'cityName': serviceCityById(_cityId).name,
         'licensePlate': normalizedPlate,
         'licensePlateNormalized': normalizedPlate,
         'vehiclePhotoUrl': photoUrl,
@@ -362,12 +360,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 decoration: _decoration(
                   'Город работы',
                   Icons.location_city_outlined,
+                ).copyWith(
+                  helperText: 'Сейчас доступен только Алматы. Новые города появятся позже.',
+                  helperStyle: const TextStyle(color: Colors.white54),
                 ),
-                items: serviceCities.entries
+                items: serviceCities
                     .map(
-                      (entry) => DropdownMenuItem(
-                        value: entry.key,
-                        child: Text(entry.value),
+                      (city) => DropdownMenuItem(
+                        value: city.id,
+                        child: Text(city.name),
                       ),
                     )
                     .toList(),

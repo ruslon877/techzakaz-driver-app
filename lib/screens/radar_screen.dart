@@ -12,6 +12,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/service_cities.dart';
 import '../services/foreground_location_service.dart';
 import '../services/push_notification_service.dart';
 import 'driver_instructions_screen.dart';
@@ -50,15 +51,13 @@ class RadarScreen extends StatefulWidget {
 }
 
 class _RadarScreenState extends State<RadarScreen> {
-  static const _almaty = LatLng(43.238949, 76.889709);
-  static const _wholeCityRadiusKm = 50;
   final _ordersQuery = FirebaseFirestore.instance
       .collection('orders')
       .where('status', isEqualTo: 'active');
   final MapController _mapController = MapController();
   final _pushNotifications = PushNotificationService.instance;
 
-  LatLng _driverLocation = _almaty;
+  LatLng _driverLocation = serviceCities.first.center;
   bool _isLocating = true;
   bool _mapReady = false;
   bool _canOpenLocationSettings = false;
@@ -327,8 +326,8 @@ class _RadarScreenState extends State<RadarScreen> {
       return false;
     }
     final orderPoint = LatLng(lat, lon);
-    if (_cityId == 'almaty' &&
-        _distanceKm(_almaty, orderPoint) > _wholeCityRadiusKm) {
+    final selectedCity = serviceCityById(_cityId);
+    if (_distanceKm(selectedCity.center, orderPoint) > selectedCity.coverageRadiusKm) {
       return false;
     }
     if (_radiusKm == null) return true;
