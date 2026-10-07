@@ -27,6 +27,12 @@ service cloud.firestore {
         && request.resource.data.dailyOrderDate is string;
     }
 
+    function validResubmission() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verificationStatus'])
+        || resource.data.verificationStatus == 'rejected'
+        && request.resource.data.verificationStatus == 'pending';
+    }
+
     match /orders/{orderId} {
       allow create: if request.resource.data.status == 'active';
       allow read: if signedIn();
@@ -75,6 +81,7 @@ service cloud.firestore {
           'vehicleType',
           'licensePlate',
           'vehiclePhotoUrl',
+          'verificationStatus',
           'freeOrdersLeft',
           'dailyOrdersCount',
           'dailyOrderDate',
@@ -88,7 +95,8 @@ service cloud.firestore {
           'cooldownUntil'
         ])
         && validFreeOrdersChange()
-        && validDailyLimitChange();
+        && validDailyLimitChange()
+        && validResubmission();
       allow delete: if false;
     }
   }

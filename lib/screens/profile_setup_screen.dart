@@ -81,9 +81,10 @@ const equipmentCatalog = <String, List<String>>{
 };
 
 class ProfileSetupScreen extends StatefulWidget {
-  const ProfileSetupScreen({super.key, required this.user});
+  const ProfileSetupScreen({super.key, required this.user, this.profile});
 
   final User user;
+  final Map<String, dynamic>? profile;
 
   @override
   State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
@@ -98,8 +99,34 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   String? _equipmentType;
   Uint8List? _photoBytes;
   String? _photoName;
+  String? _existingPhotoUrl;
   String? _error;
   bool _saving = false;
+
+  bool get _isEditing => widget.profile != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final profile = widget.profile;
+    _nameController.text = profile?['name']?.toString() ?? '';
+    _plateController.text = profile?['licensePlate']?.toString() ?? '';
+    _category = profile?['equipmentCategory']?.toString();
+    _equipmentType = profile?['equipmentType']?.toString();
+    _existingPhotoUrl = profile?['vehiclePhotoUrl']?.toString();
+    if (_category == null || !equipmentCatalog.containsKey(_category)) {
+      final type = _equipmentType;
+      final matchingCategory = type == null
+          ? null
+          : equipmentCatalog.entries
+              .where((entry) => entry.value.contains(type))
+              .map((entry) => entry.key)
+              .firstWhere((value) => true, orElse: () => '');
+      _category = matchingCategory == null || matchingCategory.isEmpty
+          ? null
+          : matchingCategory;
+    }
+  }
 
   @override
   void dispose() {
@@ -127,7 +154,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_photoBytes == null) {
+    if (_photoBytes == null && (_existingPhotoUrl == null || _existingPhotoUrl!.isEmpty)) {
       setState(() => _error = 'Добавьте фотографию спецтехники.');
       return;
     }
@@ -136,32 +163,41 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       _error = null;
     });
     try {
-      final ref = FirebaseStorage.instance.ref().child(
-        'vehicles/${widget.user.uid}.jpg',
-      );
-      await ref.putData(
-        _photoBytes!,
-        SettableMetadata(contentType: 'image/jpeg'),
-      );
-      final photoUrl = await ref.getDownloadURL();
+      var photoUrl = _existingPhotoUrl;
+      if (_photoBytes != null) {
+        final ref = FirebaseStorage.instance.ref().child(
+          'vehicles/${widget.user.uid}.jpg',
+        );
+        await ref.putData(
+          _photoBytes!,
+          SettableMetadata(contentType: 'image/jpeg'),
+        );
+        photoUrl = await ref.getDownloadURL();
+      }
+      final profileData = <String, dynamic>{
+        'driverId': widget.user.uid,
+        'name': _nameController.text.trim(),
+        'phone': widget.user.phoneNumber,
+        'equipmentCategory': _category,
+        'equipmentType': _equipmentType,
+        'vehicleType': _equipmentType,
+        'licensePlate': _plateController.text.trim().toUpperCase(),
+        'vehiclePhotoUrl': photoUrl,
+        'verificationStatus': 'pending',
+        'isOnline': false,
+      };
+      if (!_isEditing) {
+        profileData.addAll({
+          'freeOrdersLeft': 20,
+          'subscriptionEndsAt': null,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
       await FirebaseFirestore.instance
           .collection('drivers')
           .doc(widget.user.uid)
-          .set({
-            'driverId': widget.user.uid,
-            'name': _nameController.text.trim(),
-            'phone': widget.user.phoneNumber,
-            'equipmentCategory': _category,
-            'equipmentType': _equipmentType,
-            'vehicleType': _equipmentType,
-            'licensePlate': _plateController.text.trim().toUpperCase(),
-            'vehiclePhotoUrl': photoUrl,
-            'verificationStatus': 'pending',
-            'freeOrdersLeft': 20,
-            'subscriptionEndsAt': null,
-            'isOnline': false,
-            'createdAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          .set(profileData, SetOptions(merge: true));
+      if (_isEditing && mounted) Navigator.of(context).pop();
     } on FirebaseException catch (error) {
       if (mounted) {
         setState(
@@ -198,12 +234,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
             children: [
               const Text(
-                'Заполните данные для проверки',
+                _isEditing ? 'Исправьте данные профиля' : 'Заполните данные для проверки',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
               const Text(
-                'После модерации вы получите доступ к заявкам рядом с вами.',
+                _isEditing
+                    ? 'Обновите данные и повторно отправьте анкету на модерацию.'
+                    : 'После модерации вы получите доступ к заявкам рядом с вами.',
                 style: TextStyle(color: Colors.white60, height: 1.4),
               ),
               const SizedBox(height: 24),
@@ -283,8 +321,24 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                     border: Border.all(color: const Color(0xFF3B3D34)),
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: _photoBytes == null
-                      ? const Column(
+                  child: _photoBytes != null
+                      ? Image.memory(
+                          _photoBytes!,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                        )
+                      : (_existingPhotoUrl != null && _existingPhotoUrl!.isNotEmpty)
+                          ? Image.network(
+                              _existingPhotoUrl!,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                Icons.broken_image_outlined,
+                                color: Color(0xFFF3C622),
+                                size: 38,
+                              ),
+                            )
+                          : const Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
@@ -301,11 +355,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                             ),
                           ],
                         )
-                      : Image.memory(
-                          _photoBytes!,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                        ),
                 ),
               ),
               if (_photoName != null) ...[
@@ -333,7 +382,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                           color: Color(0xFF11120E),
                         )
                       : const Text(
-                          'Отправить на проверку',
+                          _isEditing ? 'Повторно отправить на проверку' : 'Отправить на проверку',
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                 ),

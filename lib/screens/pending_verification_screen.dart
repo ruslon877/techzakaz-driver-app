@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/push_notification_service.dart';
+import 'profile_setup_screen.dart';
 
 class PendingVerificationScreen extends StatefulWidget {
   const PendingVerificationScreen({super.key, this.profile});
@@ -216,6 +217,33 @@ class _PendingVerificationScreenState extends State<PendingVerificationScreen> {
                       ),
                     ),
                   ),
+                  if (_isRejected) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 54,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ProfileSetupScreen(
+                                user: FirebaseAuth.instance.currentUser!,
+                                profile: widget.profile,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.edit_note_rounded),
+                        label: const Text('Исправить данные'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _yellow,
+                          side: const BorderSide(color: _yellow),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     onPressed: _callSupport,

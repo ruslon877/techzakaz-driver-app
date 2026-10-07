@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/foreground_location_service.dart';
 import '../services/push_notification_service.dart';
@@ -72,13 +74,17 @@ class _RadarScreenState extends State<RadarScreen> {
   bool _startingForegroundService = false;
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<RemoteMessage>? _messageSubscription;
+  StreamSubscription<RemoteMessage>? _openedMessageSubscription;
   Timer? _cooldownTimer;
+  int? _radiusKm = 5;
+  static const _radiusPreferenceKey = 'radar_search_radius_km';
 
   @override
   void initState() {
     super.initState();
     FlutterForegroundTask.addTaskDataCallback(_onForegroundLocationData);
     _loadDriverLocation();
+    unawaited(_loadRadiusPreference());
     _initializePushNotifications();
     _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
@@ -113,6 +119,11 @@ class _RadarScreenState extends State<RadarScreen> {
         }
         unawaited(_pushNotifications.showForegroundNotification(message));
       });
+      _openedMessageSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
+        _handleOrderPush,
+      );
+      final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+      if (initialMessage != null) _handleOrderPush(initialMessage);
     } catch (error) {
       debugPrint('FCM initialization failed: $error');
       if (mounted) {
@@ -120,6 +131,30 @@ class _RadarScreenState extends State<RadarScreen> {
           _notificationMessage = 'Не удалось зарегистрировать уведомления. Проверьте интернет и настройки приложения.';
         });
       }
+    }
+  }
+
+  void _handleOrderPush(RemoteMessage message) {
+    final orderId = message.data['orderId']?.toString();
+    if (orderId == null || orderId.isEmpty) return;
+    unawaited(_openOrderFromPush(orderId));
+  }
+
+  Future<void> _openOrderFromPush(String orderId) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('orders')
+          .doc(orderId)
+          .get();
+      final data = snapshot.data();
+      final lat = _asDouble(data?['lat']);
+      final lon = _asDouble(data?['lon']);
+      if (data == null || lat == null || lon == null || !mounted) return;
+      if (_mapReady) _mapController.move(LatLng(lat, lon), 14.5);
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (mounted) await _showOrderSheet(orderId, data);
+    } catch (error) {
+      debugPrint('Could not open order from push: $error');
     }
   }
 
@@ -241,6 +276,7 @@ class _RadarScreenState extends State<RadarScreen> {
   void dispose() {
     _positionSubscription?.cancel();
     _messageSubscription?.cancel();
+    _openedMessageSubscription?.cancel();
     FlutterForegroundTask.removeTaskDataCallback(_onForegroundLocationData);
     _cooldownTimer?.cancel();
     final user = FirebaseAuth.instance.currentUser;
@@ -260,6 +296,33 @@ class _RadarScreenState extends State<RadarScreen> {
     });
   }
 
+  Future<void> _loadRadiusPreference() async {
+    final preferences = await SharedPreferences.getInstance();
+    final saved = preferences.getInt(_radiusPreferenceKey);
+    if (!mounted) return;
+    setState(() => _radiusKm = saved == null || saved < 0 ? null : saved);
+  }
+
+  double _distanceKm(LatLng first, LatLng second) {
+    const earthRadiusKm = 6371.0;
+    final lat1 = first.latitude * math.pi / 180;
+    final lat2 = second.latitude * math.pi / 180;
+    final deltaLat = (second.latitude - first.latitude) * math.pi / 180;
+    final deltaLon = (second.longitude - first.longitude) * math.pi / 180;
+    final a = math.sin(deltaLat / 2) * math.sin(deltaLat / 2) +
+        math.cos(lat1) * math.cos(lat2) *
+            math.sin(deltaLon / 2) * math.sin(deltaLon / 2);
+    return earthRadiusKm * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  bool _isWithinSelectedRadius(Map<String, dynamic> data) {
+    if (_radiusKm == null) return true;
+    final lat = _asDouble(data['lat']);
+    final lon = _asDouble(data['lon']);
+    if (lat == null || lon == null) return false;
+    return _distanceKm(_driverLocation, LatLng(lat, lon)) <= _radiusKm!;
+  }
+
   bool _isMatchingActiveOrder(Map<String, dynamic> data) {
     final orderType = (data['vehicleType'] ?? data['type'])
         ?.toString()
@@ -267,7 +330,8 @@ class _RadarScreenState extends State<RadarScreen> {
         .toLowerCase();
     return _isOnline &&
         data['status']?.toString() == 'active' &&
-        orderType == _vehicleType?.toLowerCase();
+        orderType == _vehicleType?.toLowerCase() &&
+        _isWithinSelectedRadius(data);
   }
 
   bool _isVisibleOrder(Map<String, dynamic> data) {
@@ -892,6 +956,54 @@ class _RadarScreenState extends State<RadarScreen> {
         ],
       ),
     );
+  }
+
+  String get _radiusLabel => _radiusKm == null ? 'Весь город' : '${_radiusKm} км';
+
+  Future<void> _showRadiusPicker() async {
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: const Color(0xFF171914),
+      useSafeArea: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Радиус поиска заявок',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+            for (final option in <({int value, String label})>[
+              (value: 5, label: '5 км'),
+              (value: 10, label: '10 км'),
+              (value: 30, label: '30 км'),
+              (value: -1, label: 'Весь город'),
+            ])
+              ListTile(
+                leading: Icon(
+                  option.value == (_radiusKm ?? -1)
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  color: const Color(0xFFF3C622),
+                ),
+                title: Text(option.label),
+                onTap: () => Navigator.pop(sheetContext, option.value),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setInt(_radiusPreferenceKey, selected);
+    setState(() => _radiusKm = selected < 0 ? null : selected);
   }
 
   void _showAccessPaywall() {
@@ -1588,6 +1700,11 @@ class _RadarScreenState extends State<RadarScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            onPressed: _showRadiusPicker,
+            tooltip: 'Радиус: $_radiusLabel',
+            icon: const Icon(Icons.radar_outlined),
+          ),
           Builder(builder: (context) => IconButton(onPressed: () => Scaffold.of(context).openDrawer(), tooltip: 'Меню', icon: const Icon(Icons.menu_rounded))),
         ],
       ),
