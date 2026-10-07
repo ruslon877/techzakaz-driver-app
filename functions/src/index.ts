@@ -10,6 +10,7 @@ if (getApps().length === 0) initializeApp();
 
 const db = getFirestore();
 const notificationRadiusKm = Number(process.env.ORDER_NOTIFICATION_RADIUS_KM ?? 5);
+const ALMATY_BOUNDS = { minLat: 43.05, maxLat: 43.45, minLon: 76.65, maxLon: 77.15 };
 
 function asNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -39,6 +40,17 @@ function normalizeVehicleType(value: unknown): string {
 
 function normalizePlate(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, '').toLocaleUpperCase('ru-RU');
+}
+
+function isAlmatyCoordinate(lat: number | null, lon: number | null): boolean {
+  return lat !== null && lon !== null
+    && lat >= ALMATY_BOUNDS.minLat && lat <= ALMATY_BOUNDS.maxLat
+    && lon >= ALMATY_BOUNDS.minLon && lon <= ALMATY_BOUNDS.maxLon;
+}
+
+function belongsToAlmaty(cityId: unknown, lat: number | null, lon: number | null): boolean {
+  const city = normalizeVehicleType(cityId);
+  return (!city || city === 'almaty') && isAlmatyCoordinate(lat, lon);
 }
 
 function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -101,6 +113,13 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     logger.warn('FCM notification skipped: order has no valid coordinates', { orderId });
     return;
   }
+  if (!belongsToAlmaty(order.cityId, orderLat, orderLon)) {
+    logger.info('FCM notification skipped: order is outside supported city', {
+      orderId,
+      cityId: order.cityId ?? null,
+    });
+    return;
+  }
 
   const driversSnapshot = await db.collection('drivers').where('isOnline', '==', true).get();
   const tokens: string[] = [];
@@ -125,6 +144,11 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
       selected: false,
       reason: '',
     };
+    if (!belongsToAlmaty(data.cityId, driverLat, driverLon)) {
+      candidate.reason = 'city_mismatch';
+      selectionDetails.push(candidate);
+      continue;
+    }
     if (normalizeVehicleType(data.vehicleType) !== orderVehicleType) {
       driversWithDifferentVehicleType += 1;
       candidate.reason = 'vehicle_type_mismatch';

@@ -79,6 +79,8 @@ service cloud.firestore {
           'equipmentCategory',
           'equipmentType',
           'vehicleType',
+          'cityId',
+          'cityName',
           'licensePlate',
           'licensePlateNormalized',
           'vehiclePhotoUrl',

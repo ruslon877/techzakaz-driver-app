@@ -81,6 +81,10 @@ const equipmentCatalog = <String, List<String>>{
   ],
 };
 
+const serviceCities = <String, String>{
+  'almaty': 'Алматы',
+};
+
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({super.key, required this.user, this.profile});
 
@@ -98,6 +102,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final _picker = ImagePicker();
   String? _category;
   String? _equipmentType;
+  String _cityId = 'almaty';
   Uint8List? _photoBytes;
   String? _photoName;
   String? _existingPhotoUrl;
@@ -115,6 +120,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     _plateController.text = profile?['licensePlate']?.toString() ?? '';
     _category = profile?['equipmentCategory']?.toString();
     _equipmentType = profile?['equipmentType']?.toString();
+    final savedCityId = profile?['cityId']?.toString();
+    if (savedCityId != null && serviceCities.containsKey(savedCityId)) {
+      _cityId = savedCityId;
+    }
     _existingPhotoUrl = profile?['vehiclePhotoUrl']?.toString();
     if (_category == null || !equipmentCatalog.containsKey(_category)) {
       final type = _equipmentType;
@@ -224,6 +233,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         'equipmentCategory': _category,
         'equipmentType': _equipmentType,
         'vehicleType': _equipmentType,
+        'cityId': _cityId,
+        'cityName': serviceCities[_cityId],
         'licensePlate': normalizedPlate,
         'licensePlateNormalized': normalizedPlate,
         'vehiclePhotoUrl': photoUrl,
@@ -344,6 +355,28 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 validator: (value) => value == null || value.trim().length < 3
                     ? 'Введите госномер'
                     : null,
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: _cityId,
+                decoration: _decoration(
+                  'Город работы',
+                  Icons.location_city_outlined,
+                ),
+                items: serviceCities.entries
+                    .map(
+                      (entry) => DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _saving
+                    ? null
+                    : (value) {
+                        if (value != null) setState(() => _cityId = value);
+                      },
+                validator: (value) => value == null ? 'Выберите город' : null,
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
