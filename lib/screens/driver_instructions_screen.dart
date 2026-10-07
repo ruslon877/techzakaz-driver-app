@@ -37,13 +37,14 @@ class DriverInstructionsScreen extends StatelessWidget {
               number: '02',
               icon: Icons.assignment_outlined,
               title: 'Откройте заявку',
-              text: 'Нажмите на маркер или уведомление. Просмотр карточки ничего не списывает и не считается взятым заказом. Проверьте детали и свяжитесь с клиентом.',
+              text: 'Нажмите на маркер или уведомление. Пока вы не нажали «Взять в работу», заявку видят другие водители — они тоже могут связаться с клиентом. Просмотр карточки ничего не списывает.',
             ),
+            _ImportantNotice(),
             _InstructionStep(
               number: '03',
               icon: Icons.check_circle_outline,
               title: 'Возьмите заказ',
-              text: 'Нажимайте «Взять в работу» только после решения выполнить заказ. В этот момент заявка закрепляется за вами, списывается одна бесплатная заявка (если нет подписки) и увеличивается дневной счётчик.',
+              text: 'Нажимайте «Взять в работу» только после решения выполнить заказ. В этот момент заявка закрепляется за вами, исчезает с радаров остальных водителей, и они больше не смогут связаться с клиентом по этой заявке. Также списывается одна бесплатная заявка (если нет подписки) и увеличивается дневной счётчик.',
             ),
             _InstructionStep(
               number: '04',
@@ -113,6 +114,57 @@ class _InstructionStep extends StatelessWidget {
                 Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
                 Text(text, style: const TextStyle(color: Colors.white60, height: 1.4)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImportantNotice extends StatelessWidget {
+  const _ImportantNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3C622).withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFF3C622), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFF3C622).withValues(alpha: 0.12),
+            blurRadius: 14,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.priority_high_rounded, color: Color(0xFFF3C622), size: 27),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ВАЖНО: заявка закрепляется после взятия',
+                  style: TextStyle(
+                    color: Color(0xFFF3C622),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                SizedBox(height: 7),
+                Text(
+                  'До нажатия «Взять в работу» заявку видят все подходящие водители и могут связываться с клиентом. После взятия заявка исчезает с радаров остальных водителей и закрепляется только за вами.',
+                  style: TextStyle(color: Colors.white, height: 1.4, fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
