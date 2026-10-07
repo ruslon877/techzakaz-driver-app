@@ -792,6 +792,12 @@ class _RadarScreenState extends State<RadarScreen> {
                             value: hasAccess ? address : 'Точный адрес скрыт 🔒',
                             valueColor: hasAccess ? null : Colors.white38,
                           ),
+                          if (lat != null && lon != null)
+                            _navigationButtons(
+                              lat: lat,
+                              lon: lon,
+                              enabled: hasAccess,
+                            ),
                           if (hasAccess && destination != null && destination.isNotEmpty)
                             _InfoRow(
                               icon: Icons.flag_outlined,
@@ -978,6 +984,88 @@ class _RadarScreenState extends State<RadarScreen> {
     }
   }
 
+  Future<void> _openNavigation({
+    required String provider,
+    required double lat,
+    required double lon,
+  }) async {
+    final uri = switch (provider) {
+      '2GIS' => Uri.parse('dgis://2gis.ru/routeSearch/rsType/car/to/$lon,$lat'),
+      'Яндекс' => Uri.parse(
+          'yandexnavi://build_route_on_map?lat_to=$lat&lon_to=$lon',
+        ),
+      _ => Uri.parse('google.navigation:q=$lat,$lon'),
+    };
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Приложение $provider не установлено')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Приложение $provider не установлено')),
+        );
+      }
+    }
+  }
+
+  Widget _navigationButtons({
+    required double lat,
+    required double lon,
+    required bool enabled,
+  }) {
+    const activeColor = Color(0xFFF3C622);
+    final providers = <({String name, IconData icon})>[
+      (name: '2GIS', icon: Icons.map_outlined),
+      (name: 'Яндекс', icon: Icons.navigation_outlined),
+      (name: 'Google', icon: Icons.public_outlined),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Построить маршрут',
+          style: TextStyle(color: Colors.white60, fontSize: 12),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (var index = 0; index < providers.length; index++) ...[
+              if (index > 0) const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: enabled
+                      ? () => _openNavigation(
+                            provider: providers[index].name,
+                            lat: lat,
+                            lon: lon,
+                          )
+                      : _showAccessPaywall,
+                  icon: Icon(providers[index].icon, size: 17),
+                  label: Text(providers[index].name),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: enabled ? activeColor : Colors.white38,
+                    side: BorderSide(
+                      color: enabled ? activeColor : Colors.white24,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: const Size(0, 42),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
   Future<void> _showActiveOrdersSheet() async {
     try {
       final snapshot = await _ordersQuery.get();
@@ -1076,6 +1164,8 @@ class _RadarScreenState extends State<RadarScreen> {
     final phone = order?['phone']?.toString() ?? '';
     final address = order?['address']?.toString() ?? 'Адрес не указан';
     final destination = order?['destinationAddress']?.toString();
+    final lat = _asDouble(order?['lat']);
+    final lon = _asDouble(order?['lon']);
     final comment = order?['comment']?.toString() ?? '';
     final orderId = order?['_orderId']?.toString();
     final pending = order?['status']?.toString() == 'in_progress';
@@ -1227,6 +1317,10 @@ class _RadarScreenState extends State<RadarScreen> {
                             ? '$address → $destination'
                             : address,
                       ),
+                      if (lat != null && lon != null) ...[
+                        const SizedBox(height: 10),
+                        _navigationButtons(lat: lat, lon: lon, enabled: true),
+                      ],
                       if (comment.isNotEmpty)
                         _CompactInfoRow(
                           icon: Icons.notes_outlined,
