@@ -511,7 +511,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                       ? const CircularProgressIndicator(
                           color: Color(0xFF11120E),
                         )
-                      : const Text(
+                      : Text(
                           _isEditing ? 'Повторно отправить на проверку' : 'Отправить на проверку',
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),

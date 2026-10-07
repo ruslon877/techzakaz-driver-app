@@ -112,7 +112,7 @@ class _InstructionStep extends StatelessWidget {
               children: [
                 Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
-                Text(text, style: const TextStyle(color: Colors.white65, height: 1.4)),
+                Text(text, style: const TextStyle(color: Colors.white60, height: 1.4)),
               ],
             ),
           ),
