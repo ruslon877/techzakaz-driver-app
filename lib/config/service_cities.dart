@@ -25,6 +25,18 @@ const serviceCities = <ServiceCity>[
     center: LatLng(43.238949, 76.889709),
     coverageRadiusKm: 50,
   ),
+  ServiceCity(
+    id: 'astana',
+    name: 'Астана',
+    center: LatLng(51.169392, 71.449074),
+    coverageRadiusKm: 50,
+  ),
+  ServiceCity(
+    id: 'shymkent',
+    name: 'Шымкент',
+    center: LatLng(42.3417, 69.5901),
+    coverageRadiusKm: 50,
+  ),
 ];
 
 final serviceCitiesById = <String, ServiceCity>{

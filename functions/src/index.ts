@@ -10,8 +10,11 @@ if (getApps().length === 0) initializeApp();
 
 const db = getFirestore();
 const notificationRadiusKm = Number(process.env.ORDER_NOTIFICATION_RADIUS_KM ?? 5);
-const ALMATY_CENTER = { lat: 43.238949, lon: 76.889709 };
-const WHOLE_CITY_RADIUS_KM = 50;
+const SUPPORTED_CITIES = {
+  almaty: { lat: 43.238949, lon: 76.889709, radiusKm: 50 },
+  astana: { lat: 51.169392, lon: 71.449074, radiusKm: 50 },
+  shymkent: { lat: 42.3417, lon: 69.5901, radiusKm: 50 },
+} as const;
 
 function asNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -43,14 +46,18 @@ function normalizePlate(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, '').toLocaleUpperCase('ru-RU');
 }
 
-function isAlmatyCoordinate(lat: number | null, lon: number | null): boolean {
-  return lat !== null && lon !== null
-    && distanceKm(ALMATY_CENTER.lat, ALMATY_CENTER.lon, lat, lon) <= WHOLE_CITY_RADIUS_KM;
+function cityIdForCoordinates(lat: number | null, lon: number | null): string | null {
+  if (lat === null || lon === null) return null;
+  for (const [cityId, city] of Object.entries(SUPPORTED_CITIES)) {
+    if (distanceKm(city.lat, city.lon, lat, lon) <= city.radiusKm) return cityId;
+  }
+  return null;
 }
 
-function belongsToAlmaty(cityId: unknown, lat: number | null, lon: number | null): boolean {
+function belongsToSupportedCity(cityId: unknown, lat: number | null, lon: number | null): boolean {
   const city = normalizeVehicleType(cityId);
-  return (!city || city === 'almaty') && isAlmatyCoordinate(lat, lon);
+  if (city && !(city in SUPPORTED_CITIES)) return false;
+  return cityIdForCoordinates(lat, lon) === (city || cityIdForCoordinates(lat, lon));
 }
 
 function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -113,10 +120,11 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
     logger.warn('FCM notification skipped: order has no valid coordinates', { orderId });
     return;
   }
-  if (!belongsToAlmaty(order.cityId, orderLat, orderLon)) {
+  const orderCityId = normalizeVehicleType(order.cityId) || cityIdForCoordinates(orderLat, orderLon);
+  if (!orderCityId || !belongsToSupportedCity(orderCityId, orderLat, orderLon)) {
     logger.info('FCM notification skipped: order is outside supported city', {
       orderId,
-      cityId: order.cityId ?? null,
+      cityId: orderCityId,
     });
     return;
   }
@@ -144,7 +152,9 @@ export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (
       selected: false,
       reason: '',
     };
-    if (!belongsToAlmaty(data.cityId, driverLat, driverLon)) {
+    const driverCityId = normalizeVehicleType(data.cityId) || cityIdForCoordinates(driverLat, driverLon);
+    if (!driverCityId || driverCityId !== orderCityId
+        || !belongsToSupportedCity(driverCityId, driverLat, driverLon)) {
       candidate.reason = 'city_mismatch';
       selectionDetails.push(candidate);
       continue;
