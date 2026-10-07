@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/foreground_location_service.dart';
 import '../services/push_notification_service.dart';
+import 'driver_instructions_screen.dart';
 import '../widgets/driver_drawer.dart';
 
 const vehicleTypes = <String>[
@@ -942,19 +943,8 @@ class _RadarScreenState extends State<RadarScreen> {
   Future<void> _signOut() => FirebaseAuth.instance.signOut();
 
   void _showInstructions() {
-    showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF171914),
-        title: const Text('Как брать заказы'),
-        content: const Text(
-          'Включите «На линии», откройте подходящую заявку на карте, свяжитесь с клиентом и нажмите «Взять в работу». После согласования нажмите «Выехал на заказ».',
-          style: TextStyle(color: Colors.white70, height: 1.5),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Понятно')),
-        ],
-      ),
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const DriverInstructionsScreen()),
     );
   }
 

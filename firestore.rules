@@ -80,6 +80,7 @@ service cloud.firestore {
           'equipmentType',
           'vehicleType',
           'licensePlate',
+          'licensePlateNormalized',
           'vehiclePhotoUrl',
           'verificationStatus',
           'freeOrdersLeft',
@@ -98,6 +99,16 @@ service cloud.firestore {
         && validDailyLimitChange()
         && validResubmission();
       allow delete: if false;
+    }
+
+    match /plateRegistry/{plate} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.driverId == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.driverId == request.auth.uid
+        && request.resource.data.driverId == request.auth.uid;
+      allow delete: if signedIn() && resource.data.driverId == request.auth.uid;
     }
   }
 }

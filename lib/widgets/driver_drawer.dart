@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../screens/driver_cabinet_screen.dart';
+import '../screens/driver_instructions_screen.dart';
 import '../screens/order_history_screen.dart';
 
 class DriverDrawer extends StatelessWidget {
@@ -105,7 +106,7 @@ class DriverDrawer extends StatelessWidget {
             ),
             _DrawerItem(
               icon: Icons.menu_book_outlined,
-              title: 'Как брать заказы',
+              title: 'Как работать (Инструкция)',
               onTap: () => _openInstructions(context),
             ),
             _SectionLabel('ПОДДЕРЖКА'),

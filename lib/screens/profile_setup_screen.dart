@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -102,6 +103,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   String? _existingPhotoUrl;
   String? _error;
   bool _saving = false;
+  bool _acceptedRules = false;
 
   bool get _isEditing => widget.profile != null;
 
@@ -116,15 +118,16 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     _existingPhotoUrl = profile?['vehiclePhotoUrl']?.toString();
     if (_category == null || !equipmentCatalog.containsKey(_category)) {
       final type = _equipmentType;
-      final matchingCategory = type == null
-          ? null
-          : equipmentCatalog.entries
-              .where((entry) => entry.value.contains(type))
-              .map((entry) => entry.key)
-              .firstWhere((value) => true, orElse: () => '');
-      _category = matchingCategory == null || matchingCategory.isEmpty
-          ? null
-          : matchingCategory;
+      String? matchingCategory;
+      if (type != null) {
+        for (final entry in equipmentCatalog.entries) {
+          if (entry.value.contains(type)) {
+            matchingCategory = entry.key;
+            break;
+          }
+        }
+      }
+      _category = matchingCategory;
     }
   }
 
@@ -152,8 +155,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     }
   }
 
+  String _normalizePlate(String value) =>
+      value.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_acceptedRules) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Согласитесь с Правилами сервиса, чтобы продолжить.')),
+      );
+      return;
+    }
     if (_photoBytes == null && (_existingPhotoUrl == null || _existingPhotoUrl!.isEmpty)) {
       setState(() => _error = 'Добавьте фотографию спецтехники.');
       return;
@@ -163,6 +175,37 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       _error = null;
     });
     try {
+      final normalizedPlate = _normalizePlate(_plateController.text);
+      final availability = await FirebaseFunctions.instance
+          .httpsCallable('checkLicensePlateAvailability')
+          .call({'licensePlate': normalizedPlate});
+      if (availability.data is Map && availability.data['available'] != true) {
+        throw StateError('Техника с таким госномером уже зарегистрирована в системе');
+      }
+      final firestore = FirebaseFirestore.instance;
+      final plateRef = firestore.collection('plateRegistry').doc(normalizedPlate);
+      final oldPlate = _normalizePlate(widget.profile?['licensePlate']?.toString() ?? '');
+      final oldPlateRef = oldPlate.isEmpty || oldPlate == normalizedPlate
+          ? null
+          : firestore.collection('plateRegistry').doc(oldPlate);
+      await firestore.runTransaction((transaction) async {
+        final plateSnapshot = await transaction.get(plateRef);
+        final oldPlateSnapshot = oldPlateRef == null
+            ? null
+            : await transaction.get(oldPlateRef);
+        final reservedBy = plateSnapshot.data()?['driverId']?.toString();
+        if (reservedBy != null && reservedBy != widget.user.uid) {
+          throw StateError('Техника с таким госномером уже зарегистрирована в системе');
+        }
+        transaction.set(plateRef, {
+          'driverId': widget.user.uid,
+          'licensePlate': normalizedPlate,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        if (oldPlateRef != null && oldPlateSnapshot?.data()?['driverId'] == widget.user.uid) {
+          transaction.delete(oldPlateRef);
+        }
+      });
       var photoUrl = _existingPhotoUrl;
       if (_photoBytes != null) {
         final ref = FirebaseStorage.instance.ref().child(
@@ -181,7 +224,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         'equipmentCategory': _category,
         'equipmentType': _equipmentType,
         'vehicleType': _equipmentType,
-        'licensePlate': _plateController.text.trim().toUpperCase(),
+        'licensePlate': normalizedPlate,
+        'licensePlateNormalized': normalizedPlate,
         'vehiclePhotoUrl': photoUrl,
         'verificationStatus': 'pending',
         'isOnline': false,
@@ -198,6 +242,16 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           .doc(widget.user.uid)
           .set(profileData, SetOptions(merge: true));
       if (_isEditing && mounted) Navigator.of(context).pop();
+    } on StateError catch (error) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = error.message;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? 'Госномер уже зарегистрирован')),
+        );
+      }
     } on FirebaseException catch (error) {
       if (mounted) {
         setState(
@@ -209,6 +263,32 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  void _showServiceRules() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF171914),
+        title: const Text('Правила сервиса ТехЗаказ'),
+        content: const SingleChildScrollView(
+          child: Text(
+            '1. Указывайте достоверные данные о себе и технике.\n\n'
+            '2. Принимайте только те заказы, которые можете выполнить.\n\n'
+            '3. Не передавайте клиентские контакты третьим лицам.\n\n'
+            '4. За нарушения доступ к заказам может быть ограничен.\n\n'
+            '5. В спорных ситуациях обратитесь в службу поддержки.',
+            style: TextStyle(color: Colors.white70, height: 1.5),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Понятно'),
+          ),
+        ],
+      ),
+    );
   }
 
   InputDecoration _decoration(String label, IconData icon) => InputDecoration(
@@ -233,12 +313,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
             children: [
-              const Text(
+              Text(
                 _isEditing ? 'Исправьте данные профиля' : 'Заполните данные для проверки',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 _isEditing
                     ? 'Обновите данные и повторно отправьте анкету на модерацию.'
                     : 'После модерации вы получите доступ к заявкам рядом с вами.',
@@ -357,6 +437,30 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                         )
                 ),
               ),
+              Container(
+                margin: const EdgeInsets.only(top: 10),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3C622).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: const Color(0xFFF3C622).withValues(alpha: 0.25),
+                  ),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline_rounded, color: Color(0xFFF3C622), size: 22),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'На фото должен чётко читаться госномер. Фотографируйте технику при хорошем освещении.',
+                        style: TextStyle(color: Colors.white70, height: 1.35),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               if (_photoName != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -368,11 +472,37 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 const SizedBox(height: 14),
                 Text(_error!, style: const TextStyle(color: Color(0xFFFF7D6E))),
               ],
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Checkbox(
+                    value: _acceptedRules,
+                    activeColor: const Color(0xFFF3C622),
+                    checkColor: const Color(0xFF11120E),
+                    onChanged: _saving
+                        ? null
+                        : (value) => setState(() => _acceptedRules = value ?? false),
+                  ),
+                  Expanded(
+                    child: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        const Text('Я согласен с '),
+                        TextButton(
+                          onPressed: _showServiceRules,
+                          child: const Text('Правила сервиса'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 22),
               SizedBox(
                 height: 56,
                 child: FilledButton(
-                  onPressed: _saving ? null : _saveProfile,
+                  onPressed: _saving || !_acceptedRules ? null : _saveProfile,
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFFF3C622),
                     foregroundColor: const Color(0xFF11120E),

@@ -3,6 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging, MulticastMessage } from 'firebase-admin/messaging';
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 
 if (getApps().length === 0) initializeApp();
@@ -36,6 +37,10 @@ function normalizeVehicleType(value: unknown): string {
   return String(value ?? '').trim().toLocaleLowerCase('ru-RU');
 }
 
+function normalizePlate(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, '').toLocaleUpperCase('ru-RU');
+}
+
 function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const earthRadiusKm = 6371;
   const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
@@ -51,6 +56,22 @@ function chunks<T>(items: T[], size: number): T[][] {
   for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
   return result;
 }
+
+export const checkLicensePlateAvailability = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Требуется авторизация');
+  }
+  const plate = normalizePlate(request.data?.licensePlate);
+  if (!plate) throw new HttpsError('invalid-argument', 'Госномер не указан');
+
+  const drivers = await db.collection('drivers').get();
+  const duplicate = drivers.docs.some((driver) => {
+    if (driver.id === request.auth?.uid) return false;
+    const data = driver.data();
+    return normalizePlate(data.licensePlateNormalized ?? data.licensePlate) === plate;
+  });
+  return { available: !duplicate };
+});
 
 export const notifyNearbyDrivers = onDocumentCreated('orders/{orderId}', async (event) => {
   const orderId = event.params.orderId;

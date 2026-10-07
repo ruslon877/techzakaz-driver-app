@@ -36,6 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   firebase_core: ^4.15.0
   cloud_firestore: ^6.10.0
+  cloud_functions: ^6.4.0
   firebase_auth: ^6.7.0
   flutter_map: ^8.3.2
   latlong2: ^0.10.1
