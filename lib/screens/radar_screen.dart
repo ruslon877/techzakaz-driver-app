@@ -572,9 +572,9 @@ class _RadarScreenState extends State<RadarScreen> {
         final dailyOrdersCount = storedDailyDate == dailyOrderDate
             ? (driverData?['dailyOrdersCount'] as num?)?.toInt() ?? 0
             : 0;
-        if (dailyOrdersCount >= 5) {
+        if (dailyOrdersCount >= 20) {
           throw StateError(
-            'Лимит на сегодня исчерпан. Можно взять не более 5 заказов в сутки.',
+            'Лимит на сегодня исчерпан. Можно взять не более 20 заказов в сутки.',
           );
         }
         if (!hasSubscription && freeOrdersLeft <= 0) {

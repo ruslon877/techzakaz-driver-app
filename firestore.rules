@@ -23,7 +23,7 @@ service cloud.firestore {
     function validDailyLimitChange() {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['dailyOrdersCount', 'dailyOrderDate'])
         || request.resource.data.dailyOrdersCount >= 0
-        && request.resource.data.dailyOrdersCount <= 5
+        && request.resource.data.dailyOrdersCount <= 20
         && request.resource.data.dailyOrderDate is string;
     }
 
