@@ -51,10 +51,7 @@ class RadarScreen extends StatefulWidget {
 
 class _RadarScreenState extends State<RadarScreen> {
   static const _almaty = LatLng(43.238949, 76.889709);
-  static const _almatyMinLat = 43.05;
-  static const _almatyMaxLat = 43.45;
-  static const _almatyMinLon = 76.65;
-  static const _almatyMaxLon = 77.15;
+  static const _wholeCityRadiusKm = 50;
   final _ordersQuery = FirebaseFirestore.instance
       .collection('orders')
       .where('status', isEqualTo: 'active');
@@ -329,13 +326,13 @@ class _RadarScreenState extends State<RadarScreen> {
     if (orderCityId != null && orderCityId.isNotEmpty && orderCityId != _cityId) {
       return false;
     }
+    final orderPoint = LatLng(lat, lon);
     if (_cityId == 'almaty' &&
-        (lat < _almatyMinLat || lat > _almatyMaxLat ||
-            lon < _almatyMinLon || lon > _almatyMaxLon)) {
+        _distanceKm(_almaty, orderPoint) > _wholeCityRadiusKm) {
       return false;
     }
     if (_radiusKm == null) return true;
-    return _distanceKm(_driverLocation, LatLng(lat, lon)) <= _radiusKm!;
+    return _distanceKm(_driverLocation, orderPoint) <= _radiusKm!;
   }
 
   bool _isMatchingActiveOrder(Map<String, dynamic> data) {

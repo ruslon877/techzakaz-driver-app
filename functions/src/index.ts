@@ -10,7 +10,8 @@ if (getApps().length === 0) initializeApp();
 
 const db = getFirestore();
 const notificationRadiusKm = Number(process.env.ORDER_NOTIFICATION_RADIUS_KM ?? 5);
-const ALMATY_BOUNDS = { minLat: 43.05, maxLat: 43.45, minLon: 76.65, maxLon: 77.15 };
+const ALMATY_CENTER = { lat: 43.238949, lon: 76.889709 };
+const WHOLE_CITY_RADIUS_KM = 50;
 
 function asNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -44,8 +45,7 @@ function normalizePlate(value: unknown): string {
 
 function isAlmatyCoordinate(lat: number | null, lon: number | null): boolean {
   return lat !== null && lon !== null
-    && lat >= ALMATY_BOUNDS.minLat && lat <= ALMATY_BOUNDS.maxLat
-    && lon >= ALMATY_BOUNDS.minLon && lon <= ALMATY_BOUNDS.maxLon;
+    && distanceKm(ALMATY_CENTER.lat, ALMATY_CENTER.lon, lat, lon) <= WHOLE_CITY_RADIUS_KM;
 }
 
 function belongsToAlmaty(cityId: unknown, lat: number | null, lon: number | null): boolean {
